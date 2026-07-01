@@ -7,8 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
 
 from config import COMPACT_WIDTH
-from ui.native.design_tokens import COMPACT_HEIGHT
-from ui.native.widgets import apply_shell_shadow
+from ui.native.layout_tokens import COMPACT_HEIGHT
 
 
 class CompactBar(QWidget):
@@ -23,7 +22,6 @@ class CompactBar(QWidget):
         self.setObjectName("CompactShell")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedHeight(COMPACT_HEIGHT)
-        apply_shell_shadow(self)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 6, 8, 6)

@@ -2,7 +2,9 @@
 
 **Design canon (read-only):** [`ui/web/index.html`](../ui/web/index.html) — see also [`docs/ui-html-spec.md`](ui-html-spec.md).
 
-**Native implementation:** [`ui/native/`](../ui/native/) + [`ui/native/design_tokens.py`](../ui/native/design_tokens.py) + [`ui/native/theme.qss`](../ui/native/theme.qss).
+**Native implementation:** [`ui/native/`](../ui/native/) + [`layout_tokens.py`](../ui/native/layout_tokens.py) + [`visual_tokens.py`](../ui/native/visual_tokens.py) + [`themes/`](../ui/native/themes/) via [`theme_manager.py`](../ui/native/theme_manager.py).
+
+**Layout vs Style:** See [`docs/UI协作规范.md`](UI协作规范.md).
 
 ## Rollback
 
@@ -13,11 +15,21 @@
 | Git native only | `git checkout main -- ui/native/` |
 | Verify fallback | `scripts\verify_web_ui_fallback.bat` |
 
-Shell backgrounds: QPainter [`crystal_glass.py`](../ui/native/crystal_glass.py) on `#NativeShell` / `#CompactShell` (`rgb(6,10,22)` α=165, 20px radius); QSS shells transparent. Child chrome (Card, TopBar, scroll) transparent for monolithic glass; bubbles + `InputFloat` + `DialogCard` keep distinct fill. Resize guides: [`resize_grip.py`](../ui/native/resize_grip.py). Spec: [`docs/Resize指示条与OmniParser路径-技术说明.md`](Resize指示条与OmniParser路径-技术说明.md) §2.
+Shell backgrounds (default `qss` profile): `#NativeShell` / `#CompactShell` in `themes/*/shell.qss` + `apply_shell_shadow`. Optional `crystal` profile: transparent shell QSS + [`crystal_glass.py`](../ui/native/crystal_glass.py) via [`shell_renderer.py`](../ui/native/shell_renderer.py) — **mutually exclusive**. Child chrome transparent; bubbles + `InputFloat` keep distinct fill. Resize guides: [`resize_grip.py`](../ui/native/resize_grip.py).
+
+## Layout vs Style boundary
+
+| Layer | Files | Changes when… |
+|-------|-------|----------------|
+| Layout | `layout_tokens.py`, `layout/topbar_layout.py`, `medium_panel.py` | Resizing top bar, margins, widget tree |
+| Style | `themes/*/shell.qss`, `topbar.qss`, `content.qss` | Colors, fonts, borders, shell gradient |
+| Themes | `current`, `variant_b`, `variant_c` + `user_settings.ui_theme` | Switching skin in Settings |
+
+`theme_current` = **engineering default slot**, not design approval. Visual target: [`ui/web/index.html`](../ui/web/index.html) or Stitch variants B/C.
 
 ## Token mapping
 
-| HTML `:root` | `design_tokens.py` | QSS / usage |
+| HTML `:root` | `layout_tokens.py` / `visual_tokens.py` | QSS / usage |
 |--------------|-------------------|-------------|
 | `--bg-primary` | `BG_PRIMARY` | shell backgrounds |
 | `--glass-fill` | `GLASS_FILL` | `#NativeShell`, `#CompactShell` |
@@ -88,4 +100,6 @@ Checklist: bubbles ≤85% width with user right-aligned; 13px readable Chinese; 
 
 ## Sync script
 
-Run `python scripts/sync_design_tokens.py` to validate tokens against `index.html` `:root` (read-only).
+Run `python scripts/sync_design_tokens.py` to validate `layout_tokens.py` + `visual_tokens.py` against `index.html` `:root` (read-only).
+
+Legacy re-export: [`design_tokens.py`](../ui/native/design_tokens.py). Composed QSS mirror: [`theme.qss`](../ui/native/theme.qss) (= `themes/current/*` + `_base.qss`).

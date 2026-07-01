@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "deployment_mode": "local",
+    "ui_theme": "current",
     "a_end_url": "http://127.0.0.1:8010",
     "demo_key": "hajimi-demo-2026",
     "llm": {
@@ -35,6 +36,8 @@ def _merge_defaults(data: dict) -> dict:
         return out
     if data.get("deployment_mode") in ("local", "intranet"):
         out["deployment_mode"] = data["deployment_mode"]
+    if data.get("ui_theme") in ("current", "variant_b", "variant_c"):
+        out["ui_theme"] = data["ui_theme"]
     for key in ("a_end_url", "demo_key"):
         if data.get(key):
             out[key] = str(data[key]).strip()

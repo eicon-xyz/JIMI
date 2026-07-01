@@ -2,7 +2,7 @@
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QApplication
 
-from ui.native.design_tokens import (
+from ui.native.layout_tokens import (
     FONT_FAMILY,
     FONT_FAMILY_FALLBACK,
     FONT_SIZE_BASE,

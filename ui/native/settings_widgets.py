@@ -111,3 +111,57 @@ class DeploymentModeGroup(QFrame):
             self._intranet.setChecked(True)
         else:
             self._local.setChecked(True)
+
+
+class UiThemeGroup(QFrame):
+    theme_changed = pyqtSignal(str)
+
+    _THEMES = (
+        ("current", "默认（工程基线）"),
+        ("variant_b", "变体 B"),
+        ("variant_c", "变体 C"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("Card")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        title = QLabel("界面主题")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
+
+        hint = QLabel("切换面板配色方案；变体 B/C 为 Stitch 设计占位，后续可替换为正式稿。")
+        hint.setObjectName("HintTextSmall")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self._buttons: dict[str, QRadioButton] = {}
+        self._group = QButtonGroup(self)
+        row = QVBoxLayout()
+        row.setSpacing(6)
+        for idx, (theme_id, label) in enumerate(self._THEMES):
+            rb = QRadioButton(label)
+            rb.setObjectName("SettingsRadio")
+            self._group.addButton(rb, idx)
+            self._buttons[theme_id] = rb
+            row.addWidget(rb)
+        self._group.buttonClicked.connect(self._on_click)
+        layout.addLayout(row)
+        self._buttons["current"].setChecked(True)
+
+    def _on_click(self):
+        self.theme_changed.emit(self.current_theme())
+
+    def current_theme(self) -> str:
+        for theme_id, btn in self._buttons.items():
+            if btn.isChecked():
+                return theme_id
+        return "current"
+
+    def set_theme(self, theme_id: str) -> None:
+        btn = self._buttons.get(theme_id)
+        if btn is not None:
+            btn.setChecked(True)

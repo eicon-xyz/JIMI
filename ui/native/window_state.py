@@ -9,7 +9,7 @@ from typing import Optional
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from config import MEDIUM_WIDTH, MEDIUM_HEIGHT
-from ui.native.design_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
 
 # Previous default before 480×520 layout alignment
 _LEGACY_MEDIUM_SIZES = frozenset({(370, 540)})

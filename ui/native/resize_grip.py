@@ -3,7 +3,7 @@ from PyQt5.QtCore import Qt, QPoint, QRectF
 from PyQt5.QtWidgets import QWidget, QApplication
 from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath
 
-from ui.native.design_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
 
 _SHELL_GLASS_RGB = (15, 23, 42)
 _SHELL_GLASS_ALPHA = 227

@@ -23,27 +23,20 @@ from core.user_settings import load_user_settings
 from ui.native.window_state import clamp_size, _screen_max
 from ui.chat_bubble import ChatBubble
 from ui.step_list import StepListWidget
-from ui.native.design_tokens import (
+from ui.native.layout_tokens import (
     DRAWER_WIDTH,
     CONTENT_PAD_H,
     CONTENT_PAD_V,
     CONTENT_PAD_BOTTOM,
     INPUT_DOCK_PAD,
-    TOP_BAR_MIN_H,
-    TOP_BAR_MAX_H,
-    TOP_BAR_PAD_H,
-    TOP_BAR_PAD_V,
-    TOP_BAR_SPACING,
-    TOP_BAR_TITLE_GAP,
 )
+from ui.native.layout.topbar_layout import build_topbar
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
 from ui.native.widgets import (
-    MenuButton,
     NavBackdrop,
     NotifRow,
     SetRow,
     animate_drawer,
-    apply_shell_shadow,
     make_widget_transparent,
     make_scroll_area_transparent,
 )
@@ -51,6 +44,7 @@ from ui.native.settings_widgets import (
     DeploymentModeGroup,
     SettingsFieldRow,
     SettingsEnterFilter,
+    UiThemeGroup,
 )
 
 
@@ -112,7 +106,6 @@ class MediumPanel(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
-        apply_shell_shadow(self)
 
         self._drawer_visible = False
         self._current_panel = "guide"
@@ -279,70 +272,14 @@ class MediumPanel(QWidget):
         self.compact_requested.emit()
 
     def _build_topbar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("TopBar")
-        bar.setMinimumHeight(TOP_BAR_MIN_H)
-        bar.setMaximumHeight(TOP_BAR_MAX_H)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(
-            TOP_BAR_PAD_H, TOP_BAR_PAD_V, TOP_BAR_PAD_H, TOP_BAR_PAD_V
-        )
-        layout.setSpacing(TOP_BAR_SPACING)
-
-        self._menu_btn = MenuButton()
+        result = build_topbar(self)
+        self._menu_btn = result.menu_btn
         self._menu_btn.clicked.connect(self._toggle_drawer)
-        layout.addWidget(self._menu_btn)
-
-        text_wrap = QWidget()
-        text_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        text_col = QVBoxLayout(text_wrap)
-        text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(TOP_BAR_TITLE_GAP)
-        title = QLabel("HAJIMI")
-        title.setObjectName("TopTitle")
-        title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        self._panel_sub = QLabel("操作指引")
-        self._panel_sub.setObjectName("TopSub")
-        self._panel_sub.setMinimumWidth(0)
-        self._panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        text_col.addWidget(title)
-        text_col.addWidget(self._panel_sub)
-        layout.addWidget(text_wrap)
-
-        layout.addStretch(1)
-
-        right_wrap = QWidget()
-        right_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        right_l = QHBoxLayout(right_wrap)
-        right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(12)
-
-        self._mode_pills = QWidget()
-        self._mode_pills.setObjectName("ModePills")
-        self._mode_pills.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        pl = QHBoxLayout(self._mode_pills)
-        pl.setContentsMargins(0, 0, 0, 0)
-        pl.setSpacing(8)
-        self._mode_pill_labels = []
-        for label, active in (("L1", False), ("L2", False), ("L3", True)):
-            pill = QLabel(label)
-            pill.setObjectName("ModePill")
-            pill.setProperty("active", "true" if active else "false")
-            pl.addWidget(pill)
-            self._mode_pill_labels.append(pill)
-        right_l.addWidget(self._mode_pills)
-        self._mode_pills.hide()
-
-        self._status_badge = QLabel("● 准备就绪")
-        self._status_badge.setObjectName("StatusBadge")
-        self._status_badge.setProperty("status", "idle")
-        self._status_badge.setMinimumWidth(0)
-        self._status_badge.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        right_l.addWidget(self._status_badge)
-        layout.addWidget(right_wrap)
-        return bar
+        self._panel_sub = result.panel_sub
+        self._mode_pills = result.mode_pills
+        self._mode_pill_labels = result.mode_pill_labels
+        self._status_badge = result.status_badge
+        return result.bar
 
     def _page_layout(self) -> QVBoxLayout:
         page = QWidget()
@@ -498,6 +435,9 @@ class MediumPanel(QWidget):
         self._deployment_mode.mode_changed.connect(self._on_deployment_mode_changed)
         il.addWidget(self._deployment_mode)
 
+        self._ui_theme_group = UiThemeGroup()
+        il.addWidget(self._ui_theme_group)
+
         api_card = QFrame()
         api_card.setObjectName("Card")
         al = QVBoxLayout(api_card)
@@ -636,6 +576,7 @@ class MediumPanel(QWidget):
     def load_settings_form(self) -> None:
         data = load_user_settings()
         self._deployment_mode.set_mode(data.get("deployment_mode", "local"))
+        self._ui_theme_group.set_theme(data.get("ui_theme", "current"))
         self._field_a_url.set_text(data.get("a_end_url", ""))
         self._field_demo_key.set_text(data.get("demo_key", ""))
         llm = data.get("llm") or {}
@@ -654,6 +595,7 @@ class MediumPanel(QWidget):
             raise ValueError("内网 API 模式下 A 端地址为必填项")
         return {
             "deployment_mode": mode,
+            "ui_theme": self._ui_theme_group.current_theme(),
             "a_end_url": a_url or "http://127.0.0.1:8010",
             "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
             "llm": {

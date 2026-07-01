@@ -32,6 +32,7 @@ from core.api_client import check_inspect_preflight, get_api_status_message
 from core.user_settings import (
     apply_user_settings,
     is_intranet_mode,
+    load_user_settings,
     save_user_settings,
 )
 from core.env_sync import sync_server_env
@@ -59,14 +60,7 @@ from ui.native.window_state import (
     save_window_state,
     apply_state_to_window,
 )
-
-_THEME_PATH = os.path.join(os.path.dirname(__file__), "native", "theme.qss")
-
-
-def _load_theme(app: QApplication):
-    if os.path.isfile(_THEME_PATH):
-        with open(_THEME_PATH, encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
+from ui.native.theme_manager import get_theme_manager
 
 
 class MainWidget(QWidget):
@@ -77,7 +71,6 @@ class MainWidget(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         if USE_NATIVE_UI:
-            _load_theme(QApplication.instance())
             from ui.native.fonts import apply_app_font
             apply_app_font(QApplication.instance())
 
@@ -178,6 +171,14 @@ class MainWidget(QWidget):
         self._wire_relocate_worker()
         self._setup_tray()
         self._check_api_on_startup()
+        mgr = get_theme_manager(QApplication.instance())
+        mgr.register_shell(self.medium_panel, compact=False)
+        mgr.register_shell(self.compact_bar, compact=True)
+        self._apply_native_theme()
+
+    def _apply_native_theme(self, theme_id: str | None = None) -> None:
+        tid = theme_id or load_user_settings().get("ui_theme", "current")
+        get_theme_manager().apply(tid)
 
     def _install_resize_tracking(self):
         """Forward edge mouse events from panel children to resize handler."""
@@ -454,12 +455,18 @@ class MainWidget(QWidget):
         try:
             merged = save_user_settings(data)
             apply_user_settings(merged)
+            self._apply_native_theme(merged.get("ui_theme", "current"))
             if merged.get("deployment_mode") == "local":
                 sync_server_env(merged)
             mode_label = "内网 API" if is_intranet_mode() else "本地启动"
+            theme_label = {
+                "current": "默认",
+                "variant_b": "变体 B",
+                "variant_c": "变体 C",
+            }.get(merged.get("ui_theme", "current"), "默认")
             self.medium_panel.on_settings_applied(
                 merged,
-                f"已保存，当前会话已切换为 {mode_label}",
+                f"已保存，当前会话：{mode_label} · 主题 {theme_label}",
             )
             text, msg_type = self._refresh_api_status()
             self.controller.message_added.emit("配置已保存并应用", "system")

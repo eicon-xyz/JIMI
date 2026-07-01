@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
 from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
 
-from ui.native.design_tokens import (
+from ui.native.layout_tokens import (
     DRAWER_WIDTH,
     ANIM_DRAWER_MS,
 )

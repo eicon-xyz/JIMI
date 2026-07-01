@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 
-from ui.native.design_tokens import BUBBLE_MAX_RATIO, CONTENT_PAD_H
+from ui.native.layout_tokens import BUBBLE_MAX_RATIO, CONTENT_PAD_H
 
 
 class ChatBubble(QWidget):
