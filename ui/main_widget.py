@@ -108,6 +108,8 @@ class MainWidget(QWidget):
         if state:
             self._medium_size = [state.medium_width, state.medium_height]
             apply_state_to_window(self, state)
+            if state.migrated_from_legacy:
+                self._state_save_timer().start(0)
             if state.x is None or state.y is None:
                 self._position_bottom_right()
             if state.last_mode == "compact":

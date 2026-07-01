@@ -13,8 +13,6 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QEvent, QSize, QTimer
-from PyQt5.QtGui import QPainter
-
 from config import (
     STOP_SERVICES_ON_EXIT,
     MODE_PILLS_MIN_WIDTH,
@@ -31,15 +29,23 @@ from ui.native.design_tokens import (
     CONTENT_PAD_V,
     CONTENT_PAD_BOTTOM,
     INPUT_DOCK_PAD,
+    TOP_BAR_MIN_H,
+    TOP_BAR_MAX_H,
+    TOP_BAR_PAD_H,
+    TOP_BAR_PAD_V,
+    TOP_BAR_SPACING,
+    TOP_BAR_TITLE_GAP,
 )
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
-from ui.native.crystal_glass import paint_crystal_glass
 from ui.native.widgets import (
     MenuButton,
     NavBackdrop,
     NotifRow,
     SetRow,
     animate_drawer,
+    apply_shell_shadow,
+    make_widget_transparent,
+    make_scroll_area_transparent,
 )
 from ui.native.settings_widgets import (
     DeploymentModeGroup,
@@ -103,10 +109,10 @@ class MediumPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NativeShell")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
+        apply_shell_shadow(self)
 
         self._drawer_visible = False
         self._current_panel = "guide"
@@ -123,6 +129,7 @@ class MediumPanel(QWidget):
         main_col.setSpacing(0)
 
         self._topbar = self._build_topbar()
+        make_widget_transparent(self._topbar)
         main_col.addWidget(self._topbar)
 
         self._thinking_strip = QWidget()
@@ -148,10 +155,12 @@ class MediumPanel(QWidget):
         self._content_scroll.setWidgetResizable(True)
         self._content_scroll.setFrameShape(QFrame.NoFrame)
         self._content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        make_scroll_area_transparent(self._content_scroll)
 
         content_wrap = QWidget()
         content_wrap.setObjectName("MediumContentWrap")
         content_wrap.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        make_widget_transparent(content_wrap)
         cw_layout = QVBoxLayout(content_wrap)
         cw_layout.setContentsMargins(
             CONTENT_PAD_H, CONTENT_PAD_V, CONTENT_PAD_H, CONTENT_PAD_BOTTOM
@@ -159,6 +168,8 @@ class MediumPanel(QWidget):
         cw_layout.setSpacing(0)
 
         self._pages = QStackedWidget()
+        self._pages.setObjectName("MediumPages")
+        make_widget_transparent(self._pages)
         self._pages.addWidget(self._build_guide_page())
         self._pages.addWidget(self._build_steps_page())
         self._pages.addWidget(self._build_blueprint_page())
@@ -184,13 +195,6 @@ class MediumPanel(QWidget):
         self._input_dock = self._build_input_dock()
         main_col.addWidget(self._input_dock)
         self._switch_panel("guide")
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        paint_crystal_glass(painter, self.width(), self.height())
-        painter.end()
-        super().paintEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -277,34 +281,50 @@ class MediumPanel(QWidget):
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("TopBar")
+        bar.setMinimumHeight(TOP_BAR_MIN_H)
+        bar.setMaximumHeight(TOP_BAR_MAX_H)
+
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(CONTENT_PAD_H, 4, CONTENT_PAD_H, 10)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            TOP_BAR_PAD_H, TOP_BAR_PAD_V, TOP_BAR_PAD_H, TOP_BAR_PAD_V
+        )
+        layout.setSpacing(TOP_BAR_SPACING)
 
         self._menu_btn = MenuButton()
         self._menu_btn.clicked.connect(self._toggle_drawer)
         layout.addWidget(self._menu_btn)
 
-        text_col = QVBoxLayout()
-        text_col.setSpacing(1)
+        text_wrap = QWidget()
+        text_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        text_col = QVBoxLayout(text_wrap)
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(TOP_BAR_TITLE_GAP)
         title = QLabel("HAJIMI")
         title.setObjectName("TopTitle")
         title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self._panel_sub = QLabel("操作指引")
         self._panel_sub.setObjectName("TopSub")
         self._panel_sub.setMinimumWidth(0)
-        self._panel_sub.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         text_col.addWidget(title)
         text_col.addWidget(self._panel_sub)
-        layout.addLayout(text_col, 1)
+        layout.addWidget(text_wrap)
+
+        layout.addStretch(1)
+
+        right_wrap = QWidget()
+        right_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        right_l = QHBoxLayout(right_wrap)
+        right_l.setContentsMargins(0, 0, 0, 0)
+        right_l.setSpacing(12)
 
         self._mode_pills = QWidget()
         self._mode_pills.setObjectName("ModePills")
         self._mode_pills.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         pl = QHBoxLayout(self._mode_pills)
         pl.setContentsMargins(0, 0, 0, 0)
-        pl.setSpacing(4)
+        pl.setSpacing(8)
         self._mode_pill_labels = []
         for label, active in (("L1", False), ("L2", False), ("L3", True)):
             pill = QLabel(label)
@@ -312,7 +332,7 @@ class MediumPanel(QWidget):
             pill.setProperty("active", "true" if active else "false")
             pl.addWidget(pill)
             self._mode_pill_labels.append(pill)
-        layout.addWidget(self._mode_pills, 0)
+        right_l.addWidget(self._mode_pills)
         self._mode_pills.hide()
 
         self._status_badge = QLabel("● 准备就绪")
@@ -320,7 +340,8 @@ class MediumPanel(QWidget):
         self._status_badge.setProperty("status", "idle")
         self._status_badge.setMinimumWidth(0)
         self._status_badge.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        layout.addWidget(self._status_badge, 0)
+        right_l.addWidget(self._status_badge)
+        layout.addWidget(right_wrap)
         return bar
 
     def _page_layout(self) -> QVBoxLayout:
@@ -332,6 +353,8 @@ class MediumPanel(QWidget):
 
     def _build_guide_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -345,6 +368,7 @@ class MediumPanel(QWidget):
 
         self._chat_container = QWidget()
         self._chat_container.setObjectName("MediumChatContainer")
+        make_widget_transparent(self._chat_container)
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(12)
@@ -359,6 +383,8 @@ class MediumPanel(QWidget):
 
     def _build_steps_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -376,6 +402,8 @@ class MediumPanel(QWidget):
 
     def _build_blueprint_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -409,6 +437,8 @@ class MediumPanel(QWidget):
 
     def _build_notifications_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -430,14 +460,20 @@ class MediumPanel(QWidget):
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
 
         scroll = QScrollArea()
+        scroll.setObjectName("SettingsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        make_scroll_area_transparent(scroll)
         inner = QWidget()
+        inner.setObjectName("SettingsScrollInner")
+        make_widget_transparent(inner)
         il = QVBoxLayout(inner)
         il.setSpacing(14)
 
@@ -713,13 +749,14 @@ class MediumPanel(QWidget):
     def _build_input_dock(self) -> QWidget:
         dock = QWidget()
         dock.setObjectName("InputDock")
+        make_widget_transparent(dock)
         dl = QVBoxLayout(dock)
         dl.setContentsMargins(INPUT_DOCK_PAD, 0, INPUT_DOCK_PAD, INPUT_DOCK_PAD)
 
         float_card = QFrame()
         float_card.setObjectName("InputFloat")
         fl = QHBoxLayout(float_card)
-        fl.setContentsMargins(12, 10, 10, 10)
+        fl.setContentsMargins(12, 8, 10, 8)
         fl.setSpacing(8)
         fl.setAlignment(Qt.AlignBottom)
 
@@ -865,7 +902,7 @@ self._topbar.sizeHint().height()
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             y = event.pos().y()
-            if y <= 80:
+            if hasattr(self, "_topbar") and y <= self._topbar.height():
                 self.drag_requested.emit()
         super().mousePressEvent(event)
 

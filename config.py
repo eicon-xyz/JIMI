@@ -21,8 +21,8 @@ HEALTH_TIMEOUT = int(os.environ.get("HAJIMI_HEALTH_TIMEOUT", "2"))
 FRAMED_WINDOW = os.environ.get("HAJIMI_FRAMED", "").lower() in ("1", "true", "yes")
 USE_NATIVE_UI = os.environ.get("HAJIMI_NATIVE_UI", "1").lower() not in ("0", "false", "no")
 
-MEDIUM_WIDTH = 370
-MEDIUM_HEIGHT = 540
+MEDIUM_WIDTH = 480
+MEDIUM_HEIGHT = 520
 COMPACT_WIDTH = 280
 COMPACT_HEIGHT = 52
 MODE_PILLS_MIN_WIDTH = 400

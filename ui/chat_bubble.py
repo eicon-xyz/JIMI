@@ -19,7 +19,10 @@ class ChatBubble(QWidget):
 
     def __init__(self, text, msg_type="system", parent=None, full_width=False):
         super().__init__(parent)
+        self.setObjectName("ChatBubbleHost")
         self._full_width = full_width
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         outer = QHBoxLayout(self)

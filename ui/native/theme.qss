@@ -1,13 +1,15 @@
 /* HAJIMI native — aligned with ui/web/index.html (desktop-host) */
 
 QWidget#NativeShell {
-    background: transparent;
-    border: none;
+    background-color: rgba(15, 23, 42, 0.89);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
 }
 
 QWidget#CompactShell {
-    background: transparent;
-    border: none;
+    background-color: rgba(15, 23, 42, 0.89);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
 }
 
 QLabel#CompactMark {
@@ -57,7 +59,7 @@ QPushButton#SwitchTopBtn:hover {
 QPushButton#MediumResizeHandle {
     background: transparent;
     border: none;
-    padding: 2px 0 2px;
+    padding: 6px 0 4px;
 }
 
 QPushButton#MediumResizeHandle:hover {
@@ -70,14 +72,16 @@ QWidget#TopBar {
 }
 
 QLabel#TopTitle {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
+    color: #f1f5f9;
 }
 
 QLabel#TopSub {
-    font-size: 11px;
+    font-size: 12px;
     color: #94a3b8;
     font-weight: 500;
+    padding-top: 2px;
 }
 
 QWidget#ModePills {
@@ -88,7 +92,7 @@ QLabel#ModePill {
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.05em;
-    padding: 3px 7px;
+    padding: 4px 9px;
     border-radius: 6px;
     color: #64748b;
 }
@@ -100,9 +104,9 @@ QLabel#ModePill[active="true"] {
 }
 
 QLabel#StatusBadge {
-    padding: 2px 10px;
+    padding: 6px 14px;
     border-radius: 10px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
 }
 
@@ -126,18 +130,61 @@ QLabel#StatusBadge[status="suspended"] {
     color: #f1c40f;
 }
 
-QScrollArea#MediumContent {
+QScrollArea#MediumContent,
+QScrollArea#SettingsScroll {
     background: transparent;
     border: none;
 }
 
-QWidget#GuideSteps {
-    margin-top: 12px;
+QScrollArea#MediumContent QAbstractScrollArea::viewport,
+QScrollArea#SettingsScroll QAbstractScrollArea::viewport {
+    background: transparent;
+    background-color: transparent;
+    border: none;
+}
+
+QWidget#MediumContentWrap,
+QStackedWidget#MediumPages,
+QWidget#MediumPage,
+QWidget#MediumChatContainer,
+QWidget#ChatBubbleHost,
+QWidget#SettingsScrollInner,
+QWidget#InputDock {
+    background: transparent;
+    background-color: transparent;
+    border: none;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 4px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
     background: transparent;
 }
 
-QWidget#InputDock {
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
     background: transparent;
+}
+
+QScrollBar:horizontal {
+    height: 0;
+    background: transparent;
+}
+
+QWidget#GuideSteps {
+    margin-top: 12px;
 }
 
 QWidget#NavBackdrop {
@@ -145,7 +192,7 @@ QWidget#NavBackdrop {
 }
 
 QWidget#NavDrawer {
-    background: rgba(6, 10, 22, 0.92);
+    background: rgba(15, 23, 42, 0.97);
     border-right: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -200,6 +247,9 @@ QPushButton#MenuBtn {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 10px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
 }
 
 QPushButton#MenuBtn:hover {
@@ -213,8 +263,9 @@ QPushButton#MenuBtn[open="true"] {
 }
 
 QFrame#Card {
-    background: transparent;
-    border: none;
+    background: rgba(30, 41, 59, 0.50);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
 }
 
 QLabel#CardTitle {
@@ -232,15 +283,15 @@ QLabel#MetaRowLabel {
 }
 
 QFrame#NotifRow {
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
     margin-bottom: 8px;
 }
 
 QFrame#NotifRow[variant="warn"] {
     background: rgba(241, 196, 15, 0.08);
-    border: 1px solid rgba(241, 196, 15, 0.12);
-    border-radius: 10px;
+    border-color: rgba(241, 196, 15, 0.12);
 }
 
 QLabel#NotifTitle {
@@ -281,13 +332,13 @@ QWidget#StepCard[stepStatus="active"] {
 
 QWidget#StepCard[stepStatus="completed"] {
     opacity: 0.85;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
 }
 
 QWidget#StepCard[stepStatus="pending"] {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
 }
@@ -374,7 +425,6 @@ QProgressBar#ThinkingBar::chunk {
 }
 
 QWidget#MediumStepControls {
-    background: transparent;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -384,7 +434,7 @@ QLabel#StepProgressLabel {
 }
 
 QFrame#InputFloat {
-    background: rgba(30, 41, 59, 0.55);
+    background: rgba(30, 41, 59, 0.50);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
 }

@@ -3,8 +3,10 @@ from PyQt5.QtCore import Qt, QPoint, QRectF
 from PyQt5.QtWidgets import QWidget, QApplication
 from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath
 
-from ui.native.crystal_glass import GLASS_FILL_RGB, GLASS_FILL_ALPHA
 from ui.native.design_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+
+_SHELL_GLASS_RGB = (15, 23, 42)
+_SHELL_GLASS_ALPHA = 227
 
 GRIP = 14
 INSET = 2
@@ -159,8 +161,8 @@ class WindowResizeHandler:
         return QColor(255, 255, 255, IDLE_ALPHA)
 
     def _hover_fill(self) -> QColor:
-        r, g, b = GLASS_FILL_RGB
-        return QColor(r, g, b, GLASS_FILL_ALPHA)
+        r, g, b = _SHELL_GLASS_RGB
+        return QColor(r, g, b, _SHELL_GLASS_ALPHA)
 
     def _hover_stroke(self) -> QColor:
         return QColor(255, 255, 255, HOVER_STROKE_ALPHA)

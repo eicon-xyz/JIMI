@@ -8,9 +8,10 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
     QGraphicsDropShadowEffect,
+    QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
-from PyQt5.QtGui import QPainter, QPen, QColor
+from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
 
 from ui.native.design_tokens import (
     DRAWER_WIDTH,
@@ -28,13 +29,39 @@ def apply_shell_shadow(widget: QWidget):
     widget.setGraphicsEffect(fx)
 
 
+def make_widget_transparent(widget: QWidget) -> None:
+    """Strip default QWidget fill so shell glass shows through."""
+    widget.setAutoFillBackground(False)
+    widget.setAttribute(Qt.WA_TranslucentBackground, True)
+
+
+def make_scroll_area_transparent(scroll) -> None:
+    """Remove QScrollArea / viewport default opaque plate (the 'black box')."""
+    from PyQt5.QtWidgets import QScrollArea
+
+    if not isinstance(scroll, QScrollArea):
+        return
+    scroll.setAutoFillBackground(False)
+    scroll.setAttribute(Qt.WA_TranslucentBackground, True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    vp = scroll.viewport()
+    vp.setAutoFillBackground(False)
+    vp.setAttribute(Qt.WA_TranslucentBackground, True)
+    transparent = QColor(0, 0, 0, 0)
+    pal = vp.palette()
+    pal.setColor(QPalette.Base, transparent)
+    pal.setColor(QPalette.Window, transparent)
+    vp.setPalette(pal)
+
+
 class MenuButton(QPushButton):
     """Hamburger menu — three lines, toggles to X when open."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("MenuBtn")
-        self.setFixedSize(34, 34)
+        self.setMinimumSize(34, 34)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self._open = False
 
     def set_open(self, open_: bool):
