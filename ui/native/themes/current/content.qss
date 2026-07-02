@@ -43,6 +43,10 @@ QScrollBar::handle:vertical {
     min-height: 20px;
 }
 
+QScrollBar::handle:vertical:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0;
@@ -106,12 +110,12 @@ QLabel#NotifSub {
 }
 
 QWidget#SetRow {
-    border-bottom: 1px solid rgba(90, 158, 196, 0.06);
+    border-bottom: 1px solid rgba(124, 143, 212, 0.06);
 }
 
 QWidget#StepCard[stepStatus="active"] {
-    background: rgba(90, 158, 196, 0.12);
-    border: 1px solid #5a9ec4;
+    background: rgba(124, 143, 212, 0.12);
+    border: 1px solid #7c8fd4;
     border-radius: 8px;
 }
 
@@ -129,7 +133,7 @@ QWidget#StepCard[stepStatus="pending"] {
 }
 
 QLabel#StepCardNum[stepStatus="active"] {
-    background: #5a9ec4;
+    background: #7c8fd4;
     color: white;
     border-radius: 10px;
     font-weight: bold;
@@ -165,7 +169,7 @@ QLabel#StepCardContent[stepStatus="pending"] {
 }
 
 QFrame#bubble-user {
-    background-color: #5a9ec4;
+    background-color: #7c8fd4;
     border-radius: 12px;
     border-top-right-radius: 2px;
 }
@@ -201,12 +205,12 @@ QWidget#ThinkingStrip {
 
 QProgressBar#ThinkingBar {
     border: none;
-    background: rgba(90, 158, 196, 0.08);
+    background: rgba(124, 143, 212, 0.08);
     max-height: 2px;
 }
 
 QProgressBar#ThinkingBar::chunk {
-    background: #5a9ec4;
+    background: #7c8fd4;
 }
 
 QWidget#MediumStepControls {
@@ -239,7 +243,7 @@ QPushButton#SendBtnAccent {
 }
 
 QPushButton#SendBtnAccent:hover {
-    background: rgba(90, 158, 196, 0.10);
+    background: rgba(124, 143, 212, 0.10);
 }
 
 QPushButton#IconBtnGhost {
@@ -261,7 +265,7 @@ QPushButton#StepBtnPrimary {
     padding: 5px 12px;
     border-radius: 8px;
     border: none;
-    background: #5a9ec4;
+    background: #7c8fd4;
     color: white;
     font-size: 12px;
     font-weight: 600;
@@ -269,12 +273,12 @@ QPushButton#StepBtnPrimary {
 
 QProgressBar#BlueprintProgress {
     border: none;
-    background: rgba(90, 158, 196, 0.08);
+    background: rgba(124, 143, 212, 0.08);
     border-radius: 3px;
 }
 
 QProgressBar#BlueprintProgress::chunk {
-    background: #5a9ec4;
+    background: #7c8fd4;
     border-radius: 3px;
 }
 

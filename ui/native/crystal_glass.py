@@ -1,5 +1,9 @@
 """Shared dark crystal glass QPainter background for native shells."""
 
+from __future__ import annotations
+
+from typing import Literal
+
 from PyQt5.QtCore import Qt, QPointF, QRectF
 from PyQt5.QtGui import (
     QPainter,
@@ -16,6 +20,9 @@ COMPACT_CORNER_RADIUS = 16.0
 GLASS_FILL_RGB = (6, 10, 22)
 GLASS_FILL_ALPHA = 165
 GLASS_BORDER_ALPHA = 41
+
+ShadowProfile = Literal["none", "light", "full"]
+DEFAULT_CRYSTAL_SHADOW: ShadowProfile = "light"
 
 
 def _panel_path(w: float, h: float, r: float) -> QPainterPath:
@@ -63,18 +70,17 @@ def _bottom_glow_path(
     return path
 
 
-def _draw_rounded_shadow(painter: QPainter, w: float, h: float, r: float):
+def _draw_rounded_shadow_layers(
+    painter: QPainter,
+    w: float,
+    h: float,
+    r: float,
+    *,
+    offset_y: float,
+    layers: list[tuple[float, int]],
+):
     painter.save()
     painter.setPen(Qt.NoPen)
-    offset_y = 12
-    layers = [
-        (28, 18),
-        (22, 14),
-        (16, 10),
-        (10, 7),
-        (6, 4),
-        (3, 2),
-    ]
     for spread, alpha in layers:
         path = QPainterPath()
         path.addRoundedRect(
@@ -85,6 +91,28 @@ def _draw_rounded_shadow(painter: QPainter, w: float, h: float, r: float):
         painter.setBrush(QColor(0, 0, 0, alpha))
         painter.drawPath(path)
     painter.restore()
+
+
+def _draw_rounded_shadow_full(painter: QPainter, w: float, h: float, r: float):
+    _draw_rounded_shadow_layers(
+        painter,
+        w,
+        h,
+        r,
+        offset_y=12,
+        layers=[(28, 18), (22, 14), (16, 10), (10, 7), (6, 4), (3, 2)],
+    )
+
+
+def _draw_rounded_shadow_light(painter: QPainter, w: float, h: float, r: float):
+    _draw_rounded_shadow_layers(
+        painter,
+        w,
+        h,
+        r,
+        offset_y=4,
+        layers=[(4, 4), (8, 6)],
+    )
 
 
 def paint_dark_gradient(painter: QPainter, panel: QPainterPath):
@@ -105,6 +133,8 @@ def paint_crystal_glass(
     *,
     radius: float | None = None,
     compact: bool = False,
+    shadow: ShadowProfile = DEFAULT_CRYSTAL_SHADOW,
+    fill_alpha: int | None = None,
 ):
     """Paint shadow, gradient underlay, and crystal glass layers."""
     if w <= 0 or h <= 0:
@@ -116,19 +146,22 @@ def paint_crystal_glass(
         else:
             radius = CORNER_RADIUS
 
-    panel = _panel_path(w, h, radius)
     inset = _inset_panel_path(w, h, radius, 1.0)
     ir = max(0.0, radius - 1.0)
     r, g, b = GLASS_FILL_RGB
+    alpha = GLASS_FILL_ALPHA if fill_alpha is None else max(0, min(255, fill_alpha))
 
-    _draw_rounded_shadow(painter, w, h, radius)
+    if shadow == "full":
+        _draw_rounded_shadow_full(painter, w, h, radius)
+    elif shadow == "light":
+        _draw_rounded_shadow_light(painter, w, h, radius)
 
     painter.save()
     painter.setClipPath(inset)
 
     paint_dark_gradient(painter, inset)
     painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(r, g, b, GLASS_FILL_ALPHA))
+    painter.setBrush(QColor(r, g, b, alpha))
     painter.drawPath(inset)
 
     painter.setPen(QPen(QColor(255, 255, 255, GLASS_BORDER_ALPHA), 1.0))

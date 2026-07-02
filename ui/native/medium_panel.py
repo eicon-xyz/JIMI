@@ -32,6 +32,8 @@ from ui.native.layout_tokens import (
 )
 from ui.native.layout.topbar_layout import build_topbar
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
+from ui.native.shell_appearance import AppearanceSettings
+from ui.native.visual_tokens import accent_for_theme
 from ui.native.widgets import (
     NavBackdrop,
     NotifRow,
@@ -44,7 +46,7 @@ from ui.native.settings_widgets import (
     DeploymentModeGroup,
     SettingsFieldRow,
     SettingsEnterFilter,
-    UiThemeGroup,
+    UiAppearanceGroup,
 )
 
 
@@ -275,6 +277,7 @@ class MediumPanel(QWidget):
         result = build_topbar(self)
         self._menu_btn = result.menu_btn
         self._menu_btn.clicked.connect(self._toggle_drawer)
+        self._title_art = result.title_art
         self._panel_sub = result.panel_sub
         self._mode_pills = result.mode_pills
         self._mode_pill_labels = result.mode_pill_labels
@@ -435,8 +438,8 @@ class MediumPanel(QWidget):
         self._deployment_mode.mode_changed.connect(self._on_deployment_mode_changed)
         il.addWidget(self._deployment_mode)
 
-        self._ui_theme_group = UiThemeGroup()
-        il.addWidget(self._ui_theme_group)
+        self._appearance_group = UiAppearanceGroup()
+        il.addWidget(self._appearance_group)
 
         api_card = QFrame()
         api_card.setObjectName("Card")
@@ -576,7 +579,8 @@ class MediumPanel(QWidget):
     def load_settings_form(self) -> None:
         data = load_user_settings()
         self._deployment_mode.set_mode(data.get("deployment_mode", "local"))
-        self._ui_theme_group.set_theme(data.get("ui_theme", "current"))
+        self._appearance_group.set_appearance(data)
+        self._appearance_group.sync_mode_sections()
         self._field_a_url.set_text(data.get("a_end_url", ""))
         self._field_demo_key.set_text(data.get("demo_key", ""))
         llm = data.get("llm") or {}
@@ -593,9 +597,10 @@ class MediumPanel(QWidget):
         a_url = self._field_a_url.text()
         if mode == "intranet" and not a_url:
             raise ValueError("内网 API 模式下 A 端地址为必填项")
+        appearance = self._appearance_group.current_appearance()
         return {
             "deployment_mode": mode,
-            "ui_theme": self._ui_theme_group.current_theme(),
+            **appearance,
             "a_end_url": a_url or "http://127.0.0.1:8010",
             "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
             "llm": {
@@ -644,6 +649,29 @@ class MediumPanel(QWidget):
         self._settings_feedback.setText(success_msg or "已保存并应用")
         self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
         self._update_api_url_label()
+
+    def apply_appearance(
+        self,
+        appearance: AppearanceSettings | dict | None = None,
+        *,
+        ui_theme: str | None = None,
+    ) -> None:
+        if appearance is None:
+            data = load_user_settings()
+            appearance = AppearanceSettings.from_user_settings(data)
+            if ui_theme is None:
+                ui_theme = data.get("ui_theme", "current")
+        elif isinstance(appearance, dict):
+            if ui_theme is None:
+                ui_theme = appearance.get("ui_theme", "current")
+            appearance = AppearanceSettings.from_user_settings(appearance)
+        theme_id = ui_theme or "current"
+        if hasattr(self, "_title_art"):
+            self._title_art.set_mode(appearance.title_art_mode)
+            self._title_art.set_accent(accent_for_theme(theme_id))
+            self._title_art.repaint()
+        if hasattr(self, "_topbar"):
+            self._topbar.repaint()
 
     def _build_prepare_banner(self) -> QWidget:
         bar = QWidget()

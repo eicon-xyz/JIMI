@@ -12,6 +12,7 @@
 |--------|---------|
 | WebEngine HTML UI | `set HAJIMI_NATIVE_UI=0` then `python main.py` |
 | Browser demo | `python -m ui.web_preview` |
+| **水晶玻璃风观感 Demo** | `python -m ui.style_preview_demo` — 左 320×496 + 右控制台，壳底色/α/字号/QSS·Crystal（设计试验） |
 | Git native only | `git checkout main -- ui/native/` |
 | Verify fallback | `scripts\verify_web_ui_fallback.bat` |
 
@@ -26,6 +27,64 @@ Shell backgrounds (default `qss` profile): `#NativeShell` / `#CompactShell` in `
 | Themes | `current`, `variant_b`, `variant_c` + `user_settings.ui_theme` | Switching skin in Settings |
 
 `theme_current` = **engineering default slot**, not design approval. Visual target: [`ui/web/index.html`](../ui/web/index.html) or Stitch variants B/C.
+
+## Style preview demo (design iteration)
+
+Layout: **680×496** window — left **320×496** medium (1:1 logical px on busy desktop), right scrollable control panel. Compact **280×48** preview in control panel.
+
+**定稿参数（Demo 确认）：** 320×496 medium · 280×48 compact · font **12px** · title **13px** · accent **#7c8fd4** · base **#0f172a** · processing **呼吸灯 pulse** · scrollbar **hover 提亮（Q14-A）** · Crystal shadow **极轻 1–2 层（Q13-B）**.
+
+Shell console: **QSS 实底** / **Crystal · 纯细边** / **Crystal · 极轻阴影** — compare before locking production `THEME_PROFILES`.
+
+Controls: accent A/B/C, shell three presets, **QSS 页面高光**（实底 solid/vertical_grad · 高光 pro/band/dual-lite · peak 0–60 默认 34）, **Crystal 顶光**（pro/dual/crystal · peak 默认 45 不变）, base color A/B/C, medium/compact alpha sliders (0.80–0.95), simulate processing.
+
+**生产设置（`python main.py` → 系统设置 → 主题外观）：** 面板风格 QSS/Crystal 三档 + 配色变体 B/C + 中/小窗透明度 80–95% + 全局字号 11–15 + Crystal 阴影 0–60 + **顶栏艺术字**（渐变 / Logo+渐变 / 展示字体，默认 gradient）+ **Crystal 顶光** + **QSS 页面高光**。仅 **保存并应用** 生效（滑条/单选不即时预览）。壳层由 **透明 `shell_crystal.qss`（variant 缺失时回退 current）+ QPainter** 绘制；apply 后对 shell 子树 `unpolish/polish`。配色变体联动顶栏渐变 accent（`visual_tokens.accent_for_theme`）。**MenuBtn 固定 34×34**。
+
+**如何验证主题已切换（保存并应用后）：** 顶栏 HAJIMI 渐变 accent（current `#7c8fd4` / variant_b `#6b8cce` / variant_c `#5ab89e`）、「保存并应用」主按钮同色、窗口圆角壳层（QSS vs Crystal）、设置页底部反馈行。自动化：`python scripts/verify_theme_apply.py`。
+
+```bash
+python -m ui.style_preview_demo
+```
+
+Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production dimensions remain **480×520** until demo sign-off and separate size PR.
+
+**顶栏标题（Round 8.1+）：** 生产端 [`title_art.py`](../ui/native/title_art.py) `TitleArtWidget` — **三种模式**（A 渐变 / B Logo+渐变 / C 展示字体，默认 A）；**无底框**，仅文字渐变/Logo；accent 随 **配色方案** 变化。`MenuBtn` 34×34 固定。第二行 `TopSub` 随面板切换文案。
+
+### Round 9 · QSS 实底 · 页面玻璃高光（Demo 定稿试验）
+
+**范围：** 仅 `ui/style_preview_demo.py` + 本文档；**不改** `crystal_glass.py` / `shell_renderer.py` / `themes/current/` / `medium_panel.py`。
+
+| ID | 主题 | 定稿 |
+|----|------|------|
+| Q34 | QSS 高光方案 | A pro / B band / C dual-lite — 控制台单选对比 |
+| Q35 | 默认强度 | 滑条 0–60，**默认 34**（QSS 专用；Crystal 顶光默认 **45** 不动） |
+| Q36 | 实底本体 | A 纯实底 solid / B 竖渐变 vertical_grad |
+| Q37 | 控制台 | 独立区「QSS 页面高光」，与 Crystal 顶光互不覆盖 |
+| Q38 | 范围 | Demo + spec 记录；生产迁移待「上生产」 |
+
+**QSS 页面高光定稿候选（肉眼确认后锁定）：**
+
+- 实底默认：**solid**（与生产 `shell.qss` rgba 观感一致）
+- 高光默认：**dual-lite @ peak 34**（最接近 Crystal dual@34，但无 crystal 暗色渐变底）
+
+**Crystal 用户偏好（生产候选，Demo 默认不变）：**
+
+- 顶光：**dual** + peak **34**（用户主观偏好；Demo 仍保留 `DEFAULT_TOP_LIGHT_PEAK=45` 以便 A/B/C 对比）
+
+### Round 10 · Crystal 阴影强度滑条（Demo 试验）
+
+**范围：** 仅 `ui/style_preview_demo.py` + 本文档。
+
+- 外阴影由 Demo 专用 `QGraphicsDropShadowEffect` 驱动（**不再**用 painter `_draw_rounded_shadow_light`，避免裁剪/不可见）
+- 控制台 **阴影强度** 滑条 **0–60**；Crystal 两档均可调
+- 预设默认：**纯细边 → 0**（无外晕）；**极轻阴影 → 14**（Q13-B 等效：≈ blur 14 / offset 3 / alpha ~28）
+- QSS 实底仍用 `apply_shell_shadow`（blur 40, alpha 110），不受此滑条影响
+
+**生产迁移备忘（非本次）：**
+
+- `shadow_strength` token + DropShadow 参数迁入 theme system
+- `paint_demo_qss_shell` + token 迁入 theme system（`shell_profile`: `highlight_mode`, `peak`, `body_mode`）
+- 设置页 / config：`theme=qss_glass | crystal` 双 preset 并存
 
 ## Token mapping
 

@@ -20,6 +20,7 @@ from ui.native.layout_tokens import (
     TOP_BAR_SPACING,
     TOP_BAR_TITLE_GAP,
 )
+from ui.native.title_art import TitleArtWidget
 from ui.native.widgets import MenuButton
 
 
@@ -27,6 +28,7 @@ from ui.native.widgets import MenuButton
 class TopBarLayoutResult:
     bar: QWidget
     menu_btn: MenuButton
+    title_art: TitleArtWidget
     panel_sub: QLabel
     mode_pills: QWidget
     mode_pill_labels: List[QLabel]
@@ -47,6 +49,8 @@ def build_topbar(parent: QWidget | None = None) -> TopBarLayoutResult:
     layout.setSpacing(TOP_BAR_SPACING)
 
     menu_btn = MenuButton(bar)
+    menu_btn.setFixedSize(34, 34)
+    menu_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
     layout.addWidget(menu_btn)
 
     text_wrap = QWidget(bar)
@@ -54,15 +58,12 @@ def build_topbar(parent: QWidget | None = None) -> TopBarLayoutResult:
     text_col = QVBoxLayout(text_wrap)
     text_col.setContentsMargins(0, 0, 0, 0)
     text_col.setSpacing(TOP_BAR_TITLE_GAP)
-    title = QLabel("HAJIMI", text_wrap)
-    title.setObjectName("TopTitle")
-    title.setMinimumWidth(0)
-    title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+    title_art = TitleArtWidget(text_wrap)
+    text_col.addWidget(title_art)
     panel_sub = QLabel("操作指引", text_wrap)
     panel_sub.setObjectName("TopSub")
     panel_sub.setMinimumWidth(0)
     panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-    text_col.addWidget(title)
     text_col.addWidget(panel_sub)
     layout.addWidget(text_wrap)
 
@@ -101,6 +102,7 @@ def build_topbar(parent: QWidget | None = None) -> TopBarLayoutResult:
     return TopBarLayoutResult(
         bar=bar,
         menu_btn=menu_btn,
+        title_art=title_art,
         panel_sub=panel_sub,
         mode_pills=mode_pills,
         mode_pill_labels=mode_pill_labels,

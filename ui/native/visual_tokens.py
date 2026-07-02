@@ -10,9 +10,19 @@ SURFACE_BORDER = "rgba(255, 255, 255, 0.08)"
 TEXT_PRIMARY = "#f1f5f9"
 TEXT_SECONDARY = "#94a3b8"
 TEXT_TERTIARY = "#64748b"
-ACCENT = "#5a9ec4"
-ACCENT_SOFT = "rgba(90, 158, 196, 0.15)"
-ACCENT_HOVER = "#6eb0d4"
+ACCENT = "#7c8fd4"
+ACCENT_SOFT = "rgba(124, 143, 212, 0.15)"
+ACCENT_HOVER = "#8fa0dc"
+
+THEME_ACCENTS: dict[str, str] = {
+    "current": "#7c8fd4",
+    "variant_b": "#6b8cce",
+    "variant_c": "#5ab89e",
+}
+
+
+def accent_for_theme(theme_id: str) -> str:
+    return THEME_ACCENTS.get(theme_id, THEME_ACCENTS["current"])
 DANGER = "#e74c3c"
 DANGER_SOFT = "rgba(231, 76, 60, 0.15)"
 SUCCESS = "#2ecc71"
@@ -27,3 +37,10 @@ OVERLAY_HIGHLIGHT = DANGER
 OVERLAY_HIGHLIGHT_RGB = (231, 76, 60)
 OVERLAY_INSPECT_RGB = (0, 200, 255)
 OVERLAY_ARROW_RGB = (0, 122, 255)
+
+# Scrollbar (Q14-A: nearly invisible until hover)
+SCROLLBAR_HANDLE = "rgba(255, 255, 255, 0.08)"
+SCROLLBAR_HANDLE_HOVER = "rgba(255, 255, 255, 0.18)"
+
+# Crystal shell shadow profile (Q13-B finalized)
+CRYSTAL_SHADOW_DEFAULT = "light"

@@ -9,8 +9,9 @@ from ui.native.layout_tokens import (
 )
 
 
-def apply_app_font(app: QApplication) -> None:
-    font = QFont(FONT_FAMILY, FONT_SIZE_BASE)
+def apply_app_font(app: QApplication, size: int | None = None) -> None:
+    pt = FONT_SIZE_BASE if size is None else size
+    font = QFont(FONT_FAMILY, pt)
     font.setFamilies([FONT_FAMILY, FONT_FAMILY_FALLBACK, "PingFang SC", "sans-serif"])
     font.setStyleHint(QFont.SansSerif)
     app.setFont(font)
