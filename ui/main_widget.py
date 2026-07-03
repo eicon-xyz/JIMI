@@ -22,6 +22,7 @@ from config import (
     COMPACT_WIDTH,
     COMPACT_HEIGHT,
     USE_NATIVE_UI,
+    USE_MOCK_ONLY,
     STOP_SERVICES_ON_EXIT,
     STARTUP_HEALTH_DELAY_MS,
     STARTUP_HEALTH_RETRY_MS,
@@ -66,6 +67,7 @@ from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES, is_luxu
 from ui.native.luxury.qss import LUXURY_BG_MODES
 from ui.native.luxury.title import script_font_labels
 from ui.native.title_art import TITLE_ART_MODES
+from ui.native.nav_icons import svg_icon
 
 
 class MainWidget(QWidget):
@@ -541,6 +543,12 @@ class MainWidget(QWidget):
     def _check_api_on_startup(self):
         if not hasattr(self, "controller"):
             return
+        if USE_MOCK_ONLY:
+            self.controller.message_added.emit(
+                "当前为 UI 演示模式（HAJIMI_MOCK_ONLY=1），未连接 A 端。",
+                "system",
+            )
+            return
         for hint in self._startup_hints:
             self.controller.message_added.emit(hint, "system")
         self._startup_health_attempt = 0
@@ -549,14 +557,15 @@ class MainWidget(QWidget):
     def _run_startup_health_check(self):
         if not hasattr(self, "controller"):
             return
+        if USE_MOCK_ONLY:
+            return
         text, msg_type = get_api_status_message()
         is_error = "danger" in msg_type
         if hasattr(self, "medium_panel"):
             self.medium_panel.set_service_status(text)
             self.medium_panel.set_connection_error(is_error, text if is_error else "")
         if not is_error or self._startup_health_attempt >= STARTUP_HEALTH_MAX_RETRIES:
-            if not is_error:
-                self.controller.message_added.emit(text, msg_type)
+            self.controller.message_added.emit(text, msg_type)
             return
         self._startup_health_attempt += 1
         QTimer.singleShot(STARTUP_HEALTH_RETRY_MS, self._run_startup_health_check)
@@ -806,6 +815,10 @@ class MainWidget(QWidget):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
         self.tray = QSystemTrayIcon(self)
+        tray_icon = svg_icon("logo", 32, "#5a9ec4")
+        if not tray_icon.isNull():
+            self.tray.setIcon(tray_icon)
+            self.setWindowIcon(tray_icon)
         self.tray.setToolTip("HAJIMI 智能桌面助手")
 
         menu = QMenu()

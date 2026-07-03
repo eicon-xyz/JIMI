@@ -3,8 +3,15 @@ from __future__ import annotations
 
 from PyQt5.QtCore import QByteArray, Qt
 from PyQt5.QtGui import QIcon, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton
+
+try:
+    from PyQt5.QtSvg import QSvgRenderer
+
+    _HAS_SVG = True
+except ImportError:
+    QSvgRenderer = None  # type: ignore[misc, assignment]
+    _HAS_SVG = False
 
 _STROKE = "#EBE4D8"
 _GOLD = "#C9A84C"
@@ -84,6 +91,10 @@ _SVGS: dict[str, str] = {
 
 
 def _render_svg(svg: str, size: int) -> QPixmap:
+    if not _HAS_SVG:
+        pm = QPixmap(size, size)
+        pm.fill(Qt.transparent)
+        return pm
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     pm = QPixmap(size, size)
     pm.fill(Qt.transparent)

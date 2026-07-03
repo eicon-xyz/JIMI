@@ -6,6 +6,8 @@ import os
 from copy import deepcopy
 from typing import Any, Dict
 
+from core.defaults import DEFAULT_A_URL, DEFAULT_DEMO_KEY, DEFAULT_OMNI_LOCAL_URL
+
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "deployment_mode": "local",
     "ui_theme": "current",
@@ -25,15 +27,15 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "luxury_script_font_id": "mrs_delafield",
     "luxury_gold_mode": "dual_layer",
     "luxury_btn_mode": "hover",
-    "a_end_url": "http://127.0.0.1:8010",
-    "demo_key": "hajimi-demo-2026",
+    "a_end_url": DEFAULT_A_URL,
+    "demo_key": DEFAULT_DEMO_KEY,
     "llm": {
         "base_url": "https://api.deepseek.com",
         "api_key": "",
         "model": "deepseek-chat",
     },
     "omniparser": {
-        "url": "http://127.0.0.1:8002",
+        "url": DEFAULT_OMNI_LOCAL_URL,
         "gpu_url": "",
     },
 }
@@ -202,8 +204,10 @@ def apply_user_settings(data: dict | None = None) -> dict:
         os.environ["DEEPSEEK_MODEL"] = llm["model"]
 
     omni = settings.get("omniparser") or {}
-    if omni.get("url"):
-        os.environ["OMNIPARSER_LOCAL_URL"] = omni["url"]
+    omni_url = (omni.get("url") or DEFAULT_OMNI_LOCAL_URL).strip()
+    if omni_url:
+        os.environ["OMNIPARSER_LOCAL_URL"] = omni_url
+        os.environ["OMNIPARSER_URL"] = omni_url
     gpu_url = (omni.get("gpu_url") or "").strip()
     if gpu_url:
         os.environ["OMNIPARSER_GPU_URL"] = gpu_url
