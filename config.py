@@ -21,11 +21,11 @@ HEALTH_TIMEOUT = int(os.environ.get("HAJIMI_HEALTH_TIMEOUT", "2"))
 FRAMED_WINDOW = os.environ.get("HAJIMI_FRAMED", "").lower() in ("1", "true", "yes")
 USE_NATIVE_UI = os.environ.get("HAJIMI_NATIVE_UI", "1").lower() not in ("0", "false", "no")
 
-MEDIUM_WIDTH = 480
+MEDIUM_WIDTH = 400
 MEDIUM_HEIGHT = 520
-COMPACT_WIDTH = 280
+COMPACT_WIDTH = 320
 COMPACT_HEIGHT = 52
-MODE_PILLS_MIN_WIDTH = 400
+MODE_PILLS_MIN_WIDTH = 700
 
 # 启动时 A 端 health 探测：避免 A 端/OmniParser 仍在初始化就报「未启动」
 STARTUP_HEALTH_DELAY_MS = int(os.environ.get("HAJIMI_STARTUP_HEALTH_DELAY_MS", "12000"))

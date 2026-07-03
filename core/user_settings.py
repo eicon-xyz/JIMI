@@ -20,6 +20,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "qss_body_mode": "solid",
     "qss_highlight_mode": "dual_lite",
     "qss_highlight_peak": 34,
+    "luxury_bg_mode": "frosted",
+    "luxury_star_intensity": 0,
+    "luxury_script_font_id": "mrs_delafield",
+    "luxury_gold_mode": "dual_layer",
+    "luxury_btn_mode": "hover",
     "a_end_url": "http://127.0.0.1:8010",
     "demo_key": "hajimi-demo-2026",
     "llm": {
@@ -47,21 +52,27 @@ def _merge_defaults(data: dict) -> dict:
         return out
     if data.get("deployment_mode") in ("local", "intranet"):
         out["deployment_mode"] = data["deployment_mode"]
-    if data.get("ui_theme") in ("current", "variant_b", "variant_c"):
+    if data.get("ui_theme") in ("current", "variant_b", "variant_c", "variant_luxury"):
         out["ui_theme"] = data["ui_theme"]
     from ui.native.shell_appearance import (
         DEFAULT_FONT_SIZE,
+        DEFAULT_LUXURY_BG_MODE,
+        DEFAULT_LUXURY_STAR_INTENSITY,
         DEFAULT_SHELL_ALPHA_COMPACT,
         DEFAULT_SHELL_ALPHA_MEDIUM,
         DEFAULT_SHELL_STYLE,
         FONT_SIZE_MAX,
         FONT_SIZE_MIN,
+        LUXURY_BG_MODE_IDS,
+        LUXURY_STAR_INTENSITY_MAX,
         SHADOW_STRENGTH_MAX,
         SHELL_ALPHA_MAX,
         SHELL_ALPHA_MIN,
         SHELL_STYLE_IDS,
         default_crystal_shadow_strength,
     )
+    from ui.native.luxury.qss import DEFAULT_LUXURY_BTN_MODE, DEFAULT_LUXURY_GOLD_MODE
+    from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, LUXURY_SCRIPT_FONT_IDS
     from ui.native.shell_paint import (
         DEFAULT_LIGHT_MODE,
         DEFAULT_QSS_BODY,
@@ -118,6 +129,25 @@ def _merge_defaults(data: dict) -> dict:
         0,
         min(SHADOW_STRENGTH_MAX, int(data.get("qss_highlight_peak", DEFAULT_QSS_HIGHLIGHT_PEAK))),
     )
+    luxury_bg = data.get("luxury_bg_mode", DEFAULT_LUXURY_BG_MODE)
+    if luxury_bg in LUXURY_BG_MODE_IDS:
+        out["luxury_bg_mode"] = luxury_bg
+    out["luxury_star_intensity"] = max(
+        0,
+        min(
+            LUXURY_STAR_INTENSITY_MAX,
+            int(data.get("luxury_star_intensity", DEFAULT_LUXURY_STAR_INTENSITY)),
+        ),
+    )
+    luxury_font = data.get("luxury_script_font_id", DEFAULT_SCRIPT_FONT_ID)
+    if luxury_font in LUXURY_SCRIPT_FONT_IDS:
+        out["luxury_script_font_id"] = luxury_font
+    luxury_gold = data.get("luxury_gold_mode", DEFAULT_LUXURY_GOLD_MODE)
+    if luxury_gold in ("horizontal", "diagonal", "dual_layer"):
+        out["luxury_gold_mode"] = luxury_gold
+    luxury_btn = data.get("luxury_btn_mode", DEFAULT_LUXURY_BTN_MODE)
+    if luxury_btn in ("edge", "hover"):
+        out["luxury_btn_mode"] = luxury_btn
     for key in ("a_end_url", "demo_key"):
         if data.get(key):
             out[key] = str(data[key]).strip()

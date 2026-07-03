@@ -18,6 +18,7 @@ from PyQt5.QtGui import (
     QColor,
     QFont,
     QFontMetrics,
+    QIcon,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -26,6 +27,7 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -43,12 +45,23 @@ from PyQt5.QtWidgets import (
 )
 
 from ui.chat_bubble import ChatBubble
+from ui.demo.luxury_icons import luxury_icon
+from ui.demo.luxury_title import (
+    DEFAULT_SCRIPT_FONT_ID,
+    LuxuryScriptTitleWidget,
+    script_font_labels,
+)
+from ui.demo.luxury_paint import (
+    BgMode,
+    ShellMode,
+    TOKENS as LUX_TOKENS,
+    paint_luxury_frame,
+)
 from ui.native.fonts import apply_app_font
 from ui.native import crystal_glass as cg
 from ui.native.crystal_glass import GLASS_FILL_ALPHA
 from ui.native.nav_icons import action_icon, svg_icon
 from ui.native.widgets import (
-    MenuButton,
     apply_shell_shadow,
     make_scroll_area_transparent,
     make_widget_transparent,
@@ -108,12 +121,23 @@ ACCENTS: dict[str, tuple[str, str, str]] = {
     "accent_a": ("雾蓝 calm", "#5a9ec4", "90, 158, 196"),
     "accent_b": ("青蓝 tech", "#38bdf8", "56, 189, 248"),
     "accent_c": ("紫蓝 premium", "#7c8fd4", "124, 143, 212"),
+    "accent_luxury_a": ("黑金 gold", "#C9A84C", "201, 168, 76"),
+    "accent_luxury_b": ("香槟 bronze", "#8C7B65", "140, 123, 101"),
+    "accent_luxury_c": ("玫瑰 mauve", "#B8A9C9", "184, 169, 201"),
 }
 
 BASES: dict[str, tuple[str, str, tuple[int, int, int]]] = {
     "base_a": ("冷蓝黑", "#0f172a", (15, 23, 42)),
     "base_b": ("石墨", "#141820", (20, 24, 32)),
     "base_c": ("暖紫灰", "#1a1625", (26, 22, 37)),
+    "base_luxury_a": ("暖近黑", "#0C0B0A", (12, 11, 10)),
+    "base_luxury_b": ("香槟底", "#0F0D0B", (15, 13, 11)),
+}
+
+LUXURY_PRESETS: dict[str, tuple[str, str, str]] = {
+    "luxury_a": ("黑金轻奢（主）", "base_luxury_a", "accent_luxury_a"),
+    "luxury_b": ("香槟编辑", "base_luxury_b", "accent_luxury_b"),
+    "luxury_c": ("冷调轻奢", "base_a", "accent_luxury_c"),
 }
 
 
@@ -130,6 +154,29 @@ DEFAULT_SHELL_PRESET = "qss"
 DEFAULT_MEDIUM_ALPHA = 87
 DEFAULT_COMPACT_ALPHA = 93
 QSS_ALPHA_REF = 89
+
+LUXURY_V2_RADIUS_DEFAULT = 10
+LUXURY_V2_RADIUS_TIGHT = 6
+LUXURY_V2_COMPACT_RADIUS = 12
+LUXURY_V2_TITLE_MODES: dict[str, str] = {
+    "restrained": "克制白字",
+    "gradient": "渐变艺术字",
+    "liquid_script": "鎏金签名",
+}
+DEFAULT_LUXURY_V2_TITLE = "liquid_script"
+DEFAULT_LUXURY_SCRIPT_FONT = DEFAULT_SCRIPT_FONT_ID
+LUXURY_SCRIPT_FONT_OPTIONS = script_font_labels()
+LUXURY_V2_GOLD_MODES: dict[str, str] = {
+    "horizontal": "横向扫光",
+    "diagonal": "斜向扫光",
+    "dual_layer": "双层鎏金",
+}
+DEFAULT_LUXURY_V2_GOLD = "horizontal"
+LUXURY_V2_BTN_MODES: dict[str, str] = {
+    "edge": "常驻金边",
+    "hover": "hover 金边",
+}
+DEFAULT_LUXURY_V2_BTN = "edge"
 
 ERROR_BANNER_SHORT = "A 端连接失败 · 请检查校园网/VPN"
 ERROR_DETAIL = (
@@ -297,8 +344,11 @@ def _apply_demo_qss_shell(
 @dataclass
 class DemoTopBarResult:
     bar: QWidget
-    menu_btn: MenuButton
+    menu_btn: QPushButton
     title_art: TitleArtWidget
+    title_restrained: QLabel
+    title_script: LuxuryScriptTitleWidget
+    title_sep: QLabel
     panel_sub: QLabel
     error_chip: QLabel
     status_badge: QPushButton
@@ -315,23 +365,39 @@ def _build_demo_topbar(parent: QWidget | None = None) -> DemoTopBarResult:
     layout.setContentsMargins(16, 8, 16, 8)
     layout.setSpacing(12)
 
-    menu_btn = MenuButton(bar)
+    menu_btn = QPushButton("☰", bar)
+    menu_btn.setObjectName("MenuBtn")
+    menu_btn.setFixedSize(34, 34)
+    menu_btn.setFlat(True)
     layout.addWidget(menu_btn)
 
     text_wrap = QWidget(bar)
     text_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-    text_col = QVBoxLayout(text_wrap)
-    text_col.setContentsMargins(0, 0, 0, 0)
-    text_col.setSpacing(2)
+    text_row = QHBoxLayout(text_wrap)
+    text_row.setContentsMargins(0, 0, 0, 0)
+    text_row.setSpacing(6)
+
+    title_restrained = QLabel("HAJIMI", text_wrap)
+    title_restrained.setObjectName("TopTitleRestrained")
+    title_restrained.hide()
+    text_row.addWidget(title_restrained)
 
     title_art = TitleArtWidget(text_wrap)
-    text_col.addWidget(title_art)
+    text_row.addWidget(title_art)
+
+    title_script = LuxuryScriptTitleWidget(text_wrap)
+    title_script.hide()
+    text_row.addWidget(title_script)
+
+    title_sep = QLabel("·", text_wrap)
+    title_sep.setObjectName("TopTitleSep")
+    text_row.addWidget(title_sep)
 
     panel_sub = QLabel(DEMO_PANEL_SUB, text_wrap)
     panel_sub.setObjectName("TopSub")
     panel_sub.setMinimumWidth(0)
     panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-    text_col.addWidget(panel_sub)
+    text_row.addWidget(panel_sub)
 
     layout.addWidget(text_wrap)
 
@@ -353,10 +419,189 @@ def _build_demo_topbar(parent: QWidget | None = None) -> DemoTopBarResult:
         bar=bar,
         menu_btn=menu_btn,
         title_art=title_art,
+        title_restrained=title_restrained,
+        title_script=title_script,
+        title_sep=title_sep,
         panel_sub=panel_sub,
         error_chip=error_chip,
         status_badge=status_badge,
     )
+
+
+def compose_luxury_v2_qss(
+    font_size: int,
+    body_font_id: str = DEFAULT_BODY_FONT,
+    *,
+    shell_radius: int = LUXURY_V2_RADIUS_DEFAULT,
+    compact_radius: int = LUXURY_V2_COMPACT_RADIUS,
+    send_btn_style: str = DEFAULT_LUXURY_V2_BTN,
+) -> str:
+    body_font = BODY_FONT_PRESETS.get(body_font_id, BODY_FONT_PRESETS[DEFAULT_BODY_FONT])
+    bubble_label = font_size + 1
+    gold = LUX_TOKENS.gold
+    send_name = "LuxBtnGoldEdge" if send_btn_style == "edge" else "LuxBtnGoldHover"
+    return f"""
+* {{
+    font-family: {body_font};
+    font-size: {font_size}px;
+    color: {LUX_TOKENS.secondary};
+}}
+QWidget#NativeShell, QWidget#CompactShell {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: {shell_radius}px;
+}}
+QWidget#TopBar {{
+    background: transparent;
+    border-bottom: 1px solid {LUX_TOKENS.surface_line};
+}}
+QWidget#TitleArt, QWidget#LuxuryScriptTitle {{
+    background: transparent;
+}}
+QLabel#TopTitleRestrained {{
+    font-size: 13px;
+    font-weight: 600;
+    color: {LUX_TOKENS.secondary};
+    background: transparent;
+}}
+QLabel#TopSub {{
+    font-size: 12px;
+    color: {LUX_TOKENS.secondary_muted};
+    font-weight: 500;
+}}
+QLabel#TopTitleSep {{
+    font-size: 12px;
+    color: {LUX_TOKENS.secondary_muted};
+    padding: 0 2px;
+}}
+QLabel#TopErrorChip {{
+    font-size: 11px;
+    font-weight: 600;
+    color: #e74c3c;
+}}
+QPushButton#StatusBadge {{
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.05);
+    color: {LUX_TOKENS.secondary_muted};
+    border: none;
+}}
+QPushButton#StatusBadge[status="processing"] {{
+    background: rgba(201, 168, 76, 0.12);
+    color: {gold};
+}}
+QPushButton#MenuBtn, QPushButton#LuxIconBtn {{
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    min-width: 34px;
+    min-height: 34px;
+    color: {LUX_TOKENS.secondary_muted};
+    font-size: 16px;
+}}
+QPushButton#MenuBtn:hover, QPushButton#LuxIconBtn:hover {{
+    background: rgba(255, 255, 255, 0.05);
+}}
+QScrollArea#PreviewContent, QWidget#PreviewContentWrap, QWidget#InputDock {{
+    background: transparent;
+    border: none;
+}}
+QFrame#bubble-user {{
+    background-color: #1C1916;
+    border: 1px solid {LUX_TOKENS.surface_line};
+    border-radius: 10px;
+    border-top-right-radius: 2px;
+}}
+QFrame#bubble-system {{
+    background-color: {LUX_TOKENS.bg_elevated};
+    border: 1px solid {LUX_TOKENS.surface_line};
+    border-radius: 10px;
+    border-top-left-radius: 2px;
+}}
+QLabel#bubbleUserLabel, QLabel#bubbleSystemLabel {{
+    color: {LUX_TOKENS.secondary};
+    font-size: {bubble_label}px;
+}}
+QFrame#InputFloat {{
+    background: {LUX_TOKENS.bg_elevated};
+    border: 1px solid {LUX_TOKENS.surface_line};
+    border-radius: 10px;
+}}
+QPushButton#IconBtnGhost, QPushButton#LuxIconBtn {{
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+}}
+QFrame#InputFloat QTextEdit#ChatInput {{
+    background: transparent;
+    border: none;
+    color: {LUX_TOKENS.secondary};
+    font-size: {font_size}px;
+}}
+QPushButton#LuxBtnGoldEdge, QPushButton#SendBtnLuxEdge {{
+    background: {LUX_TOKENS.bg_elevated};
+    border: 1px solid {gold};
+    border-radius: 8px;
+    color: {LUX_TOKENS.secondary};
+    font-size: 14px;
+    min-width: 32px;
+    min-height: 32px;
+}}
+QPushButton#LuxBtnGoldHover, QPushButton#SendBtnLuxHover {{
+    background: {LUX_TOKENS.bg_elevated};
+    border: 1px solid rgba(201, 168, 76, 0.25);
+    border-radius: 8px;
+    color: {LUX_TOKENS.secondary};
+    font-size: 14px;
+    min-width: 32px;
+    min-height: 32px;
+}}
+QPushButton#LuxBtnGoldHover:hover, QPushButton#SendBtnLuxHover:hover {{
+    border: 1px solid {gold};
+    background: rgba(201, 168, 76, 0.08);
+}}
+QPushButton#{send_name} {{
+    background: {LUX_TOKENS.bg_elevated};
+    border: 1px solid {gold if send_btn_style == "edge" else "rgba(201, 168, 76, 0.25)"};
+    border-radius: 8px;
+    color: {LUX_TOKENS.secondary};
+}}
+QLineEdit#CompactInput {{
+    background: transparent;
+    border: none;
+    color: {LUX_TOKENS.secondary};
+}}
+QLabel#CompactHint {{
+    color: {LUX_TOKENS.secondary_muted};
+}}
+QWidget#ControlPanel {{
+    background: #141820;
+}}
+QLabel#ControlTitle, QLabel#SectionLabel {{
+    color: #f1f5f9;
+}}
+QLabel#DemoHint, QLabel#SliderValue {{
+    color: #94a3b8;
+}}
+QPushButton#DemoActionBtn {{
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #e2e8f0;
+    padding: 6px 10px;
+}}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 4px;
+}}
+QScrollBar::handle:vertical {{
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+}}
+"""
 
 
 def compose_demo_qss(
@@ -421,14 +666,19 @@ QWidget#TopBar {{
     background: transparent;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }}
-QWidget#TitleArt {{
+QWidget#TitleArt, QWidget#LuxuryScriptTitle {{
     background: transparent;
 }}
 QLabel#TopSub {{
     font-size: 12px;
     color: #94a3b8;
     font-weight: 500;
-    padding-top: 2px;
+}}
+QLabel#TopTitleSep {{
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+    padding: 0 2px;
 }}
 QLabel#TopErrorChip {{
     font-size: 11px;
@@ -665,8 +915,45 @@ class DemoShellWidget(QWidget):
         self._demo_qss_highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT
         self._demo_qss_highlight_peak: int = DEFAULT_QSS_HIGHLIGHT_PEAK
 
+    def _luxury_v2_active(self) -> bool:
+        return bool(
+            getattr(self, "_luxury_v2_enabled", False)
+            or self.property("_luxury_v2_enabled")
+        )
+
     def _shell_radius(self) -> float:
+        if self._luxury_v2_active():
+            raw = getattr(self, "_luxury_radius", None) or self.property("_luxury_radius")
+            return float(raw or LUXURY_V2_RADIUS_DEFAULT)
         return COMPACT_RADIUS if self._demo_shell_compact else SHELL_RADIUS
+
+    def _paint_luxury_v2(self, painter: QPainter) -> None:
+        rect = QRectF(self.rect())
+        bg_mode: BgMode = (
+            getattr(self, "_luxury_bg_mode", None)
+            or self.property("_luxury_bg_mode")
+            or "frosted"
+        )
+        shell_mode: ShellMode = (
+            getattr(self, "_luxury_shell_mode", None)
+            or self.property("_luxury_shell_mode")
+            or "SA"
+        )
+        raw_intensity = getattr(self, "_luxury_star_intensity", None) or self.property(
+            "_luxury_star_intensity"
+        )
+        intensity = int(raw_intensity or 60)
+        raw_radius = getattr(self, "_luxury_radius", None) or self.property("_luxury_radius")
+        radius = float(raw_radius or LUXURY_V2_RADIUS_DEFAULT)
+        paint_luxury_frame(
+            painter,
+            rect,
+            bg_mode=bg_mode,
+            shell_mode=shell_mode,
+            star_intensity=intensity,
+            radius=radius,
+            compact=self._demo_shell_compact,
+        )
 
     def _paint_qss_shell(self, painter: QPainter) -> None:
         if not self._demo_qss_rgba:
@@ -684,6 +971,12 @@ class DemoShellWidget(QWidget):
         )
 
     def paintEvent(self, event):
+        if self._luxury_v2_active():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._paint_luxury_v2(painter)
+            painter.end()
+            return
         if self._demo_crystal_active:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing, True)
@@ -727,6 +1020,10 @@ class MediumMock(DemoShellWidget):
         top = _build_demo_topbar(self)
         make_widget_transparent(top.bar)
         self.title_art = top.title_art
+        self.title_restrained = top.title_restrained
+        self.title_script = top.title_script
+        self.title_sep = top.title_sep
+        self.menu_btn = top.menu_btn
         self.status_badge = top.status_badge
         self.error_chip = top.error_chip
         col.addWidget(top.bar)
@@ -769,6 +1066,7 @@ class MediumMock(DemoShellWidget):
         mic_btn.setFixedSize(32, 32)
         mic_btn.setEnabled(False)
         mic_btn.setToolTip("语音（即将推出）")
+        self.mic_btn = mic_btn
 
         inp = QTextEdit()
         inp.setObjectName("ChatInput")
@@ -779,6 +1077,7 @@ class MediumMock(DemoShellWidget):
         send = QPushButton("➤")
         send.setObjectName("SendBtnAccent")
         send.setFixedSize(32, 32)
+        self.send_btn = send
 
         actions = QHBoxLayout()
         actions.setSpacing(12)
@@ -843,6 +1142,16 @@ class StylePreviewWindow(QWidget):
         self._qss_highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT
         self._qss_highlight_peak = DEFAULT_QSS_HIGHLIGHT_PEAK
         self._crystal_shadow_strength = DEFAULT_CRYSTAL_EDGE_SHADOW
+
+        self._luxury_v2_enabled = False
+        self._luxury_bg_mode: BgMode = "frosted"
+        self._luxury_shell_mode: ShellMode = "SA"
+        self._luxury_star_intensity = 60
+        self._luxury_radius = LUXURY_V2_RADIUS_DEFAULT
+        self._luxury_v2_title_mode = DEFAULT_LUXURY_V2_TITLE
+        self._luxury_script_font_id = DEFAULT_LUXURY_SCRIPT_FONT
+        self._luxury_v2_gold_mode = DEFAULT_LUXURY_V2_GOLD
+        self._luxury_v2_btn_mode = DEFAULT_LUXURY_V2_BTN
 
         self.setWindowTitle("HAJIMI · 水晶玻璃风观感 Demo")
         self.setFixedSize(WINDOW_W, WINDOW_H)
@@ -956,6 +1265,34 @@ class StylePreviewWindow(QWidget):
         self._qss_highlight_label.setText(str(self._qss_highlight_peak))
         self._luminance_label.setText(f"{self._shell_luminance}%")
         self._scale_badge.setText(f"{MEDIUM_W}×{MEDIUM_H} px · 逻辑像素")
+        if self._luxury_v2_enabled:
+            bg_label = "磨砂黑" if self._luxury_bg_mode == "frosted" else "牛皮纸黑"
+            shell_labels = {"SA": "S-A 半透明", "SB": "S-B 实色卡", "SC": "S-C 铺满"}
+            title_label = LUXURY_V2_TITLE_MODES.get(
+                self._luxury_v2_title_mode, self._luxury_v2_title_mode
+            )
+            script_label = LUXURY_SCRIPT_FONT_OPTIONS.get(
+                self._luxury_script_font_id, self._luxury_script_font_id
+            )
+            gold_label = LUXURY_V2_GOLD_MODES.get(
+                self._luxury_v2_gold_mode, self._luxury_v2_gold_mode
+            )
+            btn_label = LUXURY_V2_BTN_MODES.get(self._luxury_v2_btn_mode, self._luxury_v2_btn_mode)
+            star_note = (
+                f"星空 {self._luxury_star_intensity}"
+                if self._luxury_bg_mode == "frosted"
+                else "无星空"
+            )
+            script_note = script_label if self._luxury_v2_title_mode == "liquid_script" else ""
+            self._hint.setText(
+                f"轻奢 v2 · {bg_label} · {shell_labels.get(self._luxury_shell_mode, '')} · "
+                f"{star_note} · 圆角 {int(self._luxury_radius)}px · "
+                f"标题 {title_label}"
+                + (f" · 签名 {script_note}" if script_note else "")
+                + f" · 鎏金 {gold_label} · 按钮 {btn_label} · 70/20/10 黑金"
+            )
+            self.setWindowTitle("HAJIMI Demo · 轻奢 v2 大改")
+            return
         light_label = LIGHT_MODES.get(self._light_mode, self._light_mode)
         font_label = self._body_font_id.replace("_", " ")
         title_label = TITLE_ART_MODES.get(self._title_art_mode, self._title_art_mode)
@@ -1183,14 +1520,148 @@ class StylePreviewWindow(QWidget):
 
         layout.addWidget(self._section("强调色"))
         self._accent_group = QButtonGroup(self)
+        self._accent_radios: dict[str, QRadioButton] = {}
         for idx, (aid, (label, hex_color, _)) in enumerate(ACCENTS.items()):
+            if aid.startswith("accent_luxury"):
+                continue
             rb = QRadioButton(f"{label}  {hex_color}")
             rb.setProperty("accent_id", aid)
             self._accent_group.addButton(rb, idx)
+            self._accent_radios[aid] = rb
             layout.addWidget(rb)
             if aid == DEFAULT_ACCENT:
                 rb.setChecked(True)
         self._accent_group.buttonClicked.connect(self._on_accent_changed)
+
+        layout.addWidget(self._section("轻奢对比 A/B/C"))
+        self._luxury_group = QButtonGroup(self)
+        self._luxury_radios: dict[str, QRadioButton] = {}
+        for idx, (preset_id, (label, base_id, accent_id)) in enumerate(
+            LUXURY_PRESETS.items()
+        ):
+            _bhex = BASES.get(base_id, BASES[DEFAULT_BASE])[1]
+            _ahex = ACCENTS.get(accent_id, ACCENTS[DEFAULT_ACCENT])[1]
+            rb = QRadioButton(f"{label}  ·  {_bhex} + {_ahex}")
+            rb.setProperty("luxury_preset_id", preset_id)
+            self._luxury_group.addButton(rb, idx)
+            self._luxury_radios[preset_id] = rb
+            layout.addWidget(rb)
+        self._luxury_group.buttonClicked.connect(self._on_luxury_preset_changed)
+
+        layout.addWidget(self._section("轻奢 v2 大改（Demo only）"))
+        self._luxury_v2_cb = QCheckBox("启用轻奢 v2 皮肤")
+        self._luxury_v2_cb.setObjectName("DemoHint")
+        self._luxury_v2_cb.toggled.connect(self._on_luxury_v2_toggled)
+        layout.addWidget(self._luxury_v2_cb)
+
+        self._luxury_v2_hint = QLabel(
+            "勾选或点击下方任意选项将自动启用 v2；启用后 Crystal/QSS 壳控件暂不可用"
+        )
+        self._luxury_v2_hint.setObjectName("DemoHint")
+        self._luxury_v2_hint.setWordWrap(True)
+        layout.addWidget(self._luxury_v2_hint)
+
+        layout.addWidget(QLabel("背景质感"))
+        self._luxury_bg_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate((("frosted", "磨砂黑"), ("kraft", "牛皮纸黑"))):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_bg_mode", mode_id)
+            self._luxury_bg_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == "frosted":
+                rb.setChecked(True)
+        self._luxury_bg_group.buttonClicked.connect(self._on_luxury_bg_changed)
+
+        layout.addWidget(QLabel("壳层 × 星空"))
+        self._luxury_shell_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(
+            (("SA", "S-A 半透明磨砂"), ("SB", "S-B 实色纸感卡"), ("SC", "S-C 星空铺满"))
+        ):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_shell_mode", mode_id)
+            self._luxury_shell_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == "SA":
+                rb.setChecked(True)
+        self._luxury_shell_group.buttonClicked.connect(self._on_luxury_shell_changed)
+
+        self._luxury_star_label = QLabel()
+        self._luxury_star_label.setObjectName("SliderValue")
+        self._luxury_star_slider = QSlider(Qt.Horizontal)
+        self._luxury_star_slider.setRange(0, 100)
+        self._luxury_star_slider.setValue(60)
+        self._luxury_star_slider.valueChanged.connect(self._on_luxury_star_changed)
+        row_star = QHBoxLayout()
+        row_star.addWidget(QLabel("星空强度"))
+        row_star.addWidget(self._luxury_star_slider, 1)
+        row_star.addWidget(self._luxury_star_label)
+        layout.addLayout(row_star)
+        self._luxury_star_hint = QLabel("仅磨砂黑显示星空（向下渐隐至 75%）")
+        self._luxury_star_hint.setObjectName("DemoHint")
+        self._luxury_star_hint.setWordWrap(True)
+        layout.addWidget(self._luxury_star_hint)
+
+        layout.addWidget(QLabel("圆角"))
+        self._luxury_radius_group = QButtonGroup(self)
+        for idx, (rad, label) in enumerate(((10, "10px"), (6, "6px"))):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_radius", rad)
+            self._luxury_radius_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if rad == 10:
+                rb.setChecked(True)
+        self._luxury_radius_group.buttonClicked.connect(self._on_luxury_radius_changed)
+
+        layout.addWidget(QLabel("顶栏标题（v2）"))
+        self._luxury_v2_title_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(LUXURY_V2_TITLE_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_v2_title_mode", mode_id)
+            self._luxury_v2_title_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_LUXURY_V2_TITLE:
+                rb.setChecked(True)
+        self._luxury_v2_title_group.buttonClicked.connect(self._on_luxury_v2_title_changed)
+
+        layout.addWidget(QLabel("签名试选（7 款）"))
+        self._luxury_script_font_group = QButtonGroup(self)
+        for idx, (font_id, label) in enumerate(LUXURY_SCRIPT_FONT_OPTIONS.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_script_font_id", font_id)
+            self._luxury_script_font_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if font_id == DEFAULT_LUXURY_SCRIPT_FONT:
+                rb.setChecked(True)
+        self._luxury_script_font_group.buttonClicked.connect(self._on_luxury_script_font_changed)
+
+        layout.addWidget(QLabel("鎏金渐变（签名标题）"))
+        self._luxury_v2_gold_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(LUXURY_V2_GOLD_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_v2_gold_mode", mode_id)
+            self._luxury_v2_gold_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_LUXURY_V2_GOLD:
+                rb.setChecked(True)
+        self._luxury_v2_gold_group.buttonClicked.connect(self._on_luxury_v2_gold_changed)
+
+        layout.addWidget(QLabel("主按钮金边（发送钮 + 示例）"))
+        self._luxury_v2_btn_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(LUXURY_V2_BTN_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_v2_btn_mode", mode_id)
+            self._luxury_v2_btn_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_LUXURY_V2_BTN:
+                rb.setChecked(True)
+        self._luxury_v2_btn_group.buttonClicked.connect(self._on_luxury_v2_btn_changed)
+
+        self._luxury_btn_edge = QPushButton("示例 · 常驻金边")
+        self._luxury_btn_edge.setObjectName("LuxBtnGoldEdge")
+        layout.addWidget(self._luxury_btn_edge)
+        self._luxury_btn_hover = QPushButton("示例 · hover 金边")
+        self._luxury_btn_hover.setObjectName("LuxBtnGoldHover")
+        layout.addWidget(self._luxury_btn_hover)
 
         layout.addWidget(self._section("Shell 模式（三档对比）"))
         self._shell_group = QButtonGroup(self)
@@ -1324,10 +1795,14 @@ class StylePreviewWindow(QWidget):
 
         layout.addWidget(self._section("壳底色"))
         self._base_group = QButtonGroup(self)
+        self._base_radios: dict[str, QRadioButton] = {}
         for idx, (bid, (label, hex_color, _)) in enumerate(BASES.items()):
+            if bid.startswith("base_luxury"):
+                continue
             rb = QRadioButton(f"{label}  {hex_color}")
             rb.setProperty("base_id", bid)
             self._base_group.addButton(rb, idx)
+            self._base_radios[bid] = rb
             layout.addWidget(rb)
             if bid == DEFAULT_BASE:
                 rb.setChecked(True)
@@ -1388,6 +1863,7 @@ class StylePreviewWindow(QWidget):
         self._sync_top_light_controls()
         self._sync_qss_highlight_controls()
         self._sync_shadow_controls()
+        self._sync_luxury_v2_controls()
         return panel
 
     @staticmethod
@@ -1396,11 +1872,239 @@ class StylePreviewWindow(QWidget):
         lbl.setObjectName("SectionLabel")
         return lbl
 
+    def _sync_luxury_v2_controls(self) -> None:
+        v2_on = self._luxury_v2_enabled
+        crystal_shell_disabled = v2_on
+        for btn in self._shell_group.buttons():
+            btn.setEnabled(not crystal_shell_disabled)
+        for btn in self._light_group.buttons():
+            btn.setEnabled(not crystal_shell_disabled and _is_crystal_preset(self._shell_preset))
+        self._top_light_slider.setEnabled(
+            not crystal_shell_disabled and _is_crystal_preset(self._shell_preset)
+        )
+        for btn in self._qss_body_group.buttons():
+            btn.setEnabled(not v2_on and self._shell_preset == "qss")
+        for btn in self._qss_highlight_group.buttons():
+            btn.setEnabled(not v2_on and self._shell_preset == "qss")
+        self._qss_highlight_slider.setEnabled(not v2_on and self._shell_preset == "qss")
+        self._shadow_slider.setEnabled(not v2_on and _is_crystal_preset(self._shell_preset))
+        for btn in self._title_art_group.buttons():
+            btn.setEnabled(not v2_on)
+        script_liquid = self._luxury_v2_title_mode == "liquid_script"
+        for btn in self._luxury_script_font_group.buttons():
+            btn.setEnabled(script_liquid)
+        for btn in self._luxury_v2_gold_group.buttons():
+            btn.setEnabled(script_liquid)
+        frosted_bg = self._luxury_bg_mode == "frosted"
+        self._luxury_star_slider.setEnabled(frosted_bg)
+        if frosted_bg:
+            self._luxury_star_hint.setText("仅磨砂黑显示星空（向下渐隐至 75%）")
+        else:
+            self._luxury_star_hint.setText("牛皮纸模式无星空，已禁用强度滑杆")
+        self._luxury_star_label.setText(str(self._luxury_star_intensity))
+
+    def _ensure_luxury_v2_enabled(self) -> None:
+        if self._luxury_v2_enabled:
+            return
+        self._luxury_v2_enabled = True
+        self._luxury_v2_cb.blockSignals(True)
+        self._luxury_v2_cb.setChecked(True)
+        self._luxury_v2_cb.blockSignals(False)
+        self._accent_id = "accent_luxury_a"
+        self._base_id = "base_luxury_a"
+        self._sync_base_accent_radios()
+        self._clear_luxury_selection()
+        if "luxury_a" in self._luxury_radios:
+            self._luxury_radios["luxury_a"].blockSignals(True)
+            self._luxury_radios["luxury_a"].setChecked(True)
+            self._luxury_radios["luxury_a"].blockSignals(False)
+
+    def _apply_luxury_shell_props(self) -> None:
+        radius = int(self._luxury_radius)
+        if self._luxury_shell_mode == "SC":
+            radius = min(radius, LUXURY_V2_RADIUS_TIGHT)
+        for widget in (self._medium, self._compact):
+            widget._luxury_v2_enabled = True
+            widget._luxury_bg_mode = self._luxury_bg_mode
+            widget._luxury_shell_mode = self._luxury_shell_mode
+            widget._luxury_star_intensity = self._luxury_star_intensity
+            widget._luxury_radius = radius
+            widget.setProperty("_luxury_v2_enabled", True)
+            widget.setProperty("_luxury_bg_mode", self._luxury_bg_mode)
+            widget.setProperty("_luxury_shell_mode", self._luxury_shell_mode)
+            widget.setProperty("_luxury_star_intensity", self._luxury_star_intensity)
+            widget.setProperty("_luxury_radius", radius)
+            widget._demo_crystal_active = False
+            widget._demo_qss_rgba = None
+            widget.setGraphicsEffect(None)
+            widget.setAutoFillBackground(False)
+            widget.setAttribute(Qt.WA_StyledBackground, True)
+            widget.setAttribute(Qt.WA_TranslucentBackground, True)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+            widget.repaint()
+
+    def _clear_luxury_shell_props(self) -> None:
+        for widget in (self._medium, self._compact):
+            widget._luxury_v2_enabled = False
+            widget.setProperty("_luxury_v2_enabled", False)
+
+    def _sync_luxury_title(self) -> None:
+        script = self._medium.title_script
+        if not self._luxury_v2_enabled:
+            self._medium.title_restrained.hide()
+            self._medium.title_art.show()
+            script.hide()
+            self._medium.title_art.set_mode(self._title_art_mode)
+            alabel, hex_color, _ = _accent_rgb_hex(self._accent_id)
+            self._medium.title_art.set_accent(hex_color)
+            return
+        mode = self._luxury_v2_title_mode
+        self._medium.title_restrained.hide()
+        self._medium.title_art.hide()
+        script.hide()
+        script.set_gold_mode(self._luxury_v2_gold_mode)
+        if mode == "restrained":
+            self._medium.title_restrained.show()
+        elif mode == "gradient":
+            self._medium.title_art.show()
+            self._medium.title_art.set_mode("gradient")
+            self._medium.title_art.set_accent(LUX_TOKENS.gold)
+        else:
+            script.set_font_id(self._luxury_script_font_id)
+            script.show()
+        self._medium.title_restrained.update()
+        self._medium.title_art.update()
+        script.update()
+
+    def _sync_luxury_icons(self) -> None:
+        if not self._luxury_v2_enabled:
+            self._medium.menu_btn.setText("☰")
+            self._medium.menu_btn.setIcon(QIcon())
+            self._medium.mic_btn.setIcon(action_icon("mic"))
+            self._medium.send_btn.setText("➤")
+            self._medium.send_btn.setIcon(QIcon())
+            self._medium.send_btn.setObjectName("SendBtnAccent")
+            for btn in (self._medium.menu_btn, self._medium.mic_btn, self._medium.send_btn):
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+            return
+        self._medium.menu_btn.setText("")
+        self._medium.menu_btn.setIcon(luxury_icon("menu", 20))
+        self._medium.mic_btn.setIcon(luxury_icon("mic", 18))
+        self._medium.send_btn.setText("")
+        self._medium.send_btn.setIcon(luxury_icon("send", 18))
+        edge = self._luxury_v2_btn_mode == "edge"
+        name = "SendBtnLuxEdge" if edge else "SendBtnLuxHover"
+        self._medium.send_btn.setObjectName(name)
+        for btn in (self._medium.menu_btn, self._medium.mic_btn, self._medium.send_btn):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _on_luxury_v2_toggled(self, on: bool) -> None:
+        self._luxury_v2_enabled = on
+        if on:
+            self._accent_id = "accent_luxury_a"
+            self._base_id = "base_luxury_a"
+            self._sync_base_accent_radios()
+            self._clear_luxury_selection()
+            if "luxury_a" in self._luxury_radios:
+                self._luxury_radios["luxury_a"].blockSignals(True)
+                self._luxury_radios["luxury_a"].setChecked(True)
+                self._luxury_radios["luxury_a"].blockSignals(False)
+        self._apply_preview()
+
+    def _on_luxury_bg_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_bg_mode = button.property("luxury_bg_mode") or "frosted"
+        self._apply_preview()
+
+    def _on_luxury_shell_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        mode = button.property("luxury_shell_mode") or "SA"
+        self._luxury_shell_mode = mode
+        if mode == "SC":
+            self._luxury_radius = LUXURY_V2_RADIUS_TIGHT
+            for btn in self._luxury_radius_group.buttons():
+                rad = btn.property("luxury_radius")
+                if rad is not None and int(rad) == LUXURY_V2_RADIUS_TIGHT:
+                    btn.setChecked(True)
+                    break
+        self._apply_preview()
+
+    def _on_luxury_star_changed(self, value: int) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_star_intensity = value
+        self._apply_preview()
+
+    def _on_luxury_radius_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_radius = int(button.property("luxury_radius") or LUXURY_V2_RADIUS_DEFAULT)
+        self._apply_preview()
+
+    def _on_luxury_v2_title_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_v2_title_mode = button.property("luxury_v2_title_mode") or DEFAULT_LUXURY_V2_TITLE
+        self._apply_preview()
+
+    def _on_luxury_script_font_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_script_font_id = (
+            button.property("luxury_script_font_id") or DEFAULT_LUXURY_SCRIPT_FONT
+        )
+        self._luxury_v2_title_mode = "liquid_script"
+        for btn in self._luxury_v2_title_group.buttons():
+            if btn.property("luxury_v2_title_mode") == "liquid_script":
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.blockSignals(False)
+                break
+        self._apply_preview()
+
+    def _on_luxury_v2_gold_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_v2_gold_mode = button.property("luxury_v2_gold_mode") or DEFAULT_LUXURY_V2_GOLD
+        self._apply_preview()
+
+    def _on_luxury_v2_btn_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_v2_btn_mode = button.property("luxury_v2_btn_mode") or DEFAULT_LUXURY_V2_BTN
+        self._apply_preview()
+
+    def _clear_luxury_selection(self) -> None:
+        self._luxury_group.setExclusive(False)
+        for rb in self._luxury_radios.values():
+            rb.setChecked(False)
+        self._luxury_group.setExclusive(True)
+
+    def _sync_base_accent_radios(self) -> None:
+        for bid, rb in getattr(self, "_base_radios", {}).items():
+            rb.blockSignals(True)
+            rb.setChecked(bid == self._base_id)
+            rb.blockSignals(False)
+        for aid, rb in getattr(self, "_accent_radios", {}).items():
+            rb.blockSignals(True)
+            rb.setChecked(aid == self._accent_id)
+            rb.blockSignals(False)
+
     def _on_accent_changed(self, button: QRadioButton):
+        self._clear_luxury_selection()
         self._accent_id = button.property("accent_id") or DEFAULT_ACCENT
         self._apply_preview()
 
+    def _on_luxury_preset_changed(self, button: QRadioButton):
+        preset_id = button.property("luxury_preset_id")
+        if not preset_id or preset_id not in LUXURY_PRESETS:
+            return
+        _label, base_id, accent_id = LUXURY_PRESETS[preset_id]
+        self._base_id = base_id
+        self._accent_id = accent_id
+        self._sync_base_accent_radios()
+        self._apply_preview()
+
     def _on_base_changed(self, button: QRadioButton):
+        self._clear_luxury_selection()
         self._base_id = button.property("base_id") or DEFAULT_BASE
         self._apply_preview()
 
@@ -1470,29 +2174,43 @@ class StylePreviewWindow(QWidget):
 
     def _apply_preview(self):
         app = QApplication.instance()
-        preset = self._shell_preset
-        qss = compose_demo_qss(
-            self._accent_id,
-            preset,
-            self._base_id,
-            self._medium_alpha,
-            self._compact_alpha,
-            self._font_size,
-            body_font_id=self._body_font_id,
-            shell_luminance=self._shell_luminance,
-        )
-        app.setStyleSheet(qss)
-
-        tokens = self._compute_tokens()
-        self._apply_shell_from_tokens(tokens)
-
-        alabel, hex_color, _ = _accent_rgb_hex(self._accent_id)
-        self._medium.title_art.set_accent(hex_color)
-        self._medium.title_art.set_mode(self._title_art_mode)
+        if self._luxury_v2_enabled:
+            self._apply_luxury_shell_props()
+            qss = compose_luxury_v2_qss(
+                self._font_size,
+                self._body_font_id,
+                shell_radius=int(self._luxury_radius),
+                send_btn_style=self._luxury_v2_btn_mode,
+            )
+            app.setStyleSheet(qss)
+            self._sync_luxury_title()
+            self._sync_luxury_icons()
+        else:
+            self._clear_luxury_shell_props()
+            preset = self._shell_preset
+            qss = compose_demo_qss(
+                self._accent_id,
+                preset,
+                self._base_id,
+                self._medium_alpha,
+                self._compact_alpha,
+                self._font_size,
+                body_font_id=self._body_font_id,
+                shell_luminance=self._shell_luminance,
+            )
+            app.setStyleSheet(qss)
+            tokens = self._compute_tokens()
+            self._apply_shell_from_tokens(tokens)
+            alabel, hex_color, _ = _accent_rgb_hex(self._accent_id)
+            self._medium.title_art.set_accent(hex_color)
+            self._medium.title_art.set_mode(self._title_art_mode)
+            self._sync_luxury_title()
+            self._sync_luxury_icons()
 
         self._sync_top_light_controls()
         self._sync_qss_highlight_controls()
         self._sync_shadow_controls()
+        self._sync_luxury_v2_controls()
         self._refresh_left_preview()
 
         if self._processing:
