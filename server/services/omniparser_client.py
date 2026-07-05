@@ -160,6 +160,30 @@ def _compute_spatial_relations(elements: List[UIElement]) -> None:
         a.bottom_elem_ids = [elements[k].element_id for k, _ in bottom_candidates[:3]]
 
 
+def _filter_elements_for_llm(elements: List[UIElement]) -> List[dict]:
+    """Return LLM-visible element data — no coordinates, no scores, no types.
+
+    Each element dict contains only:
+      - id: str (mapped from element_id)
+      - content: str (mapped from text, empty string if None)
+      - left_ids: List[str] (mapped from left_elem_ids)
+      - right_ids: List[str] (mapped from right_elem_ids)
+      - top_ids: List[str] (mapped from top_elem_ids)
+      - bottom_ids: List[str] (mapped from bottom_elem_ids)
+    """
+    result = []
+    for el in elements:
+        result.append({
+            "id": el.element_id,
+            "content": el.text or "",
+            "left_ids": el.left_elem_ids,
+            "right_ids": el.right_elem_ids,
+            "top_ids": el.top_elem_ids,
+            "bottom_ids": el.bottom_elem_ids,
+        })
+    return result
+
+
 def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     """
     Call the local OmniParser V2 API and return HAJIMI-style UIElement list.
