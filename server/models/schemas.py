@@ -36,7 +36,7 @@ class Intent(BaseModel):
 class UIElement(BaseModel):
     """截图中识别到的 UI 元素"""
 
-    element_id: str = Field(..., description="SoM 全局唯一编号，如 ~1")
+    element_id: str = Field(..., description="ID without prefix, e.g. '5'")
     bbox: List[float] = Field(..., min_length=4, max_length=4)
     element_type: str = Field(
         ...,
@@ -45,6 +45,30 @@ class UIElement(BaseModel):
     text: Optional[str] = ""
     confidence: float = Field(..., ge=0.0, le=1.0)
     center: Optional[List[int]] = Field(None, min_length=2, max_length=2)
+    # NEW: spatial relations
+    left_elem_ids: List[str] = Field(default_factory=list)
+    right_elem_ids: List[str] = Field(default_factory=list)
+    top_elem_ids: List[str] = Field(default_factory=list)
+    bottom_elem_ids: List[str] = Field(default_factory=list)
+
+
+class PlanningStep(BaseModel):
+    """Planner output — intent only, no coordinates"""
+
+    step_index: int = Field(..., ge=1)
+    instruction: str
+
+
+class ExecutedStep(BaseModel):
+    """Execution record — filled by Execution Agent at runtime"""
+
+    step_index: int = Field(..., ge=1)
+    instruction: str
+    action: Optional[str] = None
+    target_element_id: Optional[str] = None
+    params: Optional[dict] = None
+    action_summary: Optional[str] = None
+    status: str = Field("pending", pattern="^(pending|executing|done|failed)$")
 
 
 class Annotation(BaseModel):
@@ -84,8 +108,7 @@ class Blueprint(BaseModel):
     current_step: int = Field(..., ge=1)
     state: str = Field(
         ...,
-        pattern="^(generated|pending_confirm|executing|suspended|"
-        "rolling_back|completed|terminated)$",
+        pattern="^(generated|executing|completed|terminated)$",
     )
 
 
@@ -135,19 +158,15 @@ class ProcessResponse(BaseModel):
 
     task_id: str
     success: bool
+    goal: str = ""  # NEW: from Planning Agent
     intent: Intent
     ui_elements: List[UIElement]
     annotated_image: Optional[str] = Field(
         None, description="带 SoM 标注的截图 Base64"
     )
     blueprint: Blueprint
-    steps: List[Step]
-    constraints: Optional[dict] = Field(
-        None, description="从用户输入提取的约束条件（如安装路径、保存位置）"
-    )
-    reference_resolution: Optional[List[int]] = Field(
-        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
-    )
+    steps: List[ExecutedStep]
+    redline: Optional[RedlineInfo] = None
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
@@ -294,15 +313,3 @@ class InspectResponse(BaseModel):
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
-
-
-class CancelRequest(BaseModel):
-    """取消任务请求"""
-
-    task_id: str = Field(..., description="任务 ID")
-
-
-class CancelRequest(BaseModel):
-    """取消任务请求"""
-
-    task_id: str = Field(..., description="任务 ID")
