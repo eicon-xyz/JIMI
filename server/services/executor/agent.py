@@ -9,7 +9,7 @@ import json
 import logging
 import threading
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 import pyautogui
 import pyperclip
@@ -18,12 +18,11 @@ from server.config import settings
 from server.models.schemas import UIElement, ExecutedStep
 from server.services.omniparser_client import parse_screenshot_full, _filter_elements_for_llm
 from server.services.executor.safety import check_step
-from server.services.llm.providers import call_llm, extract_json_object
+from server.services.llm.providers import extract_json_object
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 15
-STEP_RETRY_LIMIT = getattr(settings, "STEP_RETRY_LIMIT", None) or 1
 
 EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是完成当前步骤。你可以调用工具来观察屏幕和执行操作。
 
@@ -271,7 +270,7 @@ class ExecutionAgent:
         try:
             from core.screen_capture import capture_to_base64
             image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
-        except Exception:
+        except ImportError:
             # Fallback: use mss directly
             import mss
             from PIL import Image
@@ -452,7 +451,11 @@ class ExecutionAgent:
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
 
         action_summary = None
-        last_get_screen_info_image = None
+
+        # Build the conversation once: system prompt + task context.
+        # Tool call history accumulates across rounds below.
+        messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
+        messages.append({"role": "user", "content": context})
 
         for round_num in range(MAX_TOOL_CALL_ROUNDS):
             if cancel_event and cancel_event.is_set():
@@ -460,13 +463,8 @@ class ExecutionAgent:
                 step.action_summary = "cancelled by user"
                 return step
 
-            # Build messages for this round
-            messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
-            if round_num == 0:
-                messages.append({"role": "user", "content": context})
-            else:
-                messages.append({"role": "user", "content": context})
-                # Add tool call history
+            # On subsequent rounds, nudge the LLM to continue
+            if round_num > 0:
                 messages.append({
                     "role": "user",
                     "content": "继续。你还可以调用工具。每次只调用一个工具。"
@@ -511,15 +509,11 @@ class ExecutionAgent:
             if result.get("action_summary"):
                 action_summary = result["action_summary"]
 
-            # Track last screenshot for SSE
-            if tool_name == "get_screen_info" and result.get("annotated_image"):
-                last_get_screen_info_image = result["annotated_image"]
-
             # Add assistant response + tool result to conversation
             messages.append({"role": "assistant", "content": raw})
             messages.append({
                 "role": "tool",
-                "tool_call_id": "call_1",
+                "tool_call_id": f"call_{round_num}",
                 "content": json.dumps(result, ensure_ascii=False),
             })
 
