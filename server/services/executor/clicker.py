@@ -234,5 +234,8 @@ def execute_action(action: str, bbox_center, params=None) -> dict:
                 logger.info(f"mock drag: ({x1},{y1})->({x2},{y2})")
             return {"success": True, "drag": params}
         return {"success": False, "error": f"Invalid drag params: {params}"}
+    elif action == 'launch_app':
+        logger.info(f"launch_app step (no-op in engine): {params}")
+        return {"success": True, "launched": str(params or "unknown")}
     else:
         return {"success": False, "error": f"Unknown action: {action}"}

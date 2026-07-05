@@ -270,47 +270,49 @@ def process_query(
     if route == "L2":
         raw_steps = generate_l2_steps(query, ui_elements)
 
-    # ── 4. LLM 生成执行计划 ──
-    if not raw_steps and settings.USE_REAL_LLM and ui_elements:
-        # Icon Stitch: crop + zoom + stitch desktop icons, identify target in 1 LLM call
-        from server.services.icon_stitch import build_icon_strips_from_client_elements, identify_from_strips
-        from core.screen_capture import capture_screen
+    # ── 4. App Launch: Win+Search channel ──
+    if not raw_steps and settings.USE_REAL_LLM:
+        from server.services.launcher import launch_app, _extract_app_name_from_query, _extract_remaining_operation
 
-        # Filter desktop elements (same criteria as _serialize_elements)
-        desktop_elements = [
-            el for el in ui_elements
-            if el.element_type == 'button'
-            and el.bbox[1] < 300
-            and (el.bbox[2] - el.bbox[0]) * (el.bbox[3] - el.bbox[1]) > 500
-            and el.bbox[3] > 50
-        ]
+        app_name = _extract_app_name_from_query(query)
+        if app_name:
+            logger.info(f"Win+Search launch: '{app_name}' extracted from '{query}'")
+            launch_result = launch_app(app_name)
 
-        if desktop_elements:
-            screen_img = capture_screen()
-            if screen_img:
-                strips = build_icon_strips_from_client_elements(screen_img, desktop_elements)
-                target_element_id = identify_from_strips(strips, query)
-                logger.info(f"Icon stitch: '{query}' -> {target_element_id}")
+            if launch_result.get("success"):
+                summary = app_name
+                raw_steps = [{
+                    "step_index": 1,
+                    "action": "launch_app",
+                    "description": f"Open {app_name} via Win+Search",
+                    "bbox_center": None,
+                    "params": app_name,
+                }]
 
-                if target_element_id:
-                    # Find the matching element to get OmniParser bbox center
-                    for el in ui_elements:
-                        if el.element_id == target_element_id:
-                            cx = int((el.bbox[0] + el.bbox[2]) / 2)
-                            cy = int((el.bbox[1] + el.bbox[3]) / 2)
-                            raw_steps = [{
-                                "step_index": 1,
-                                "action": "double_click",
-                                "description": f"Open {query}",
-                                "target_element_id": target_element_id,
-                                "bbox_center": [cx, cy],
-                                "params": f"{cx},{cy}",
-                            }]
-                            summary = query
-                            break
+                # Multi-step: if query has remaining operations after launch
+                remaining = _extract_remaining_operation(query, app_name)
+                if remaining:
+                    import time
+                    time.sleep(4.0)  # Wait for app to fully open
+                    try:
+                        from core.screen_capture import capture_to_base64
+                        app_img = capture_to_base64(exclude_self=True, fmt="PNG")
+                        if app_img:
+                            from server.services.omniparser_client import parse_screenshot_full
+                            app_parse = parse_screenshot_full(app_img)
+                            if app_parse.elements:
+                                app_element_text = _serialize_elements(app_parse.elements)
+                                llm_data = _call_executor_llm(remaining, app_element_text, app_img)
+                                if llm_data and llm_data.get("steps"):
+                                    for i, s in enumerate(llm_data["steps"]):
+                                        s["step_index"] = i + 2
+                                    raw_steps.extend(llm_data["steps"])
+                                    logger.info(f"In-app plan: {len(llm_data['steps'])} steps after launch")
+                    except Exception as e:
+                        logger.warning(f"In-app planning failed: {e}")
 
-        # Fallback: old LLM plan (only if icon match failed)
-        if not raw_steps:
+        # Fallback: existing LLM plan with elements (non-launch queries)
+        if not raw_steps and ui_elements:
             element_text = _serialize_elements(ui_elements)
             llm_data = _call_executor_llm(query, element_text, image_base64)
 
