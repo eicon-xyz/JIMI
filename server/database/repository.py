@@ -46,9 +46,9 @@ class TaskRepository:
                 },
                 element_count=response.detection_meta.get("element_count") if response.detection_meta else None,
                 detection_latency_ms=response.detection_meta.get("latency_ms") if response.detection_meta else None,
-                redline_triggered=response.redline is not None and response.redline.triggered,
-                redline_category=response.redline.category if response.redline else None,
-                result="rejected" if (response.redline and response.redline.triggered) else None,
+                redline_triggered=False,
+                redline_category=None,
+                result=None,
                 clarification_count=1 if response.intent.needs_clarification else 0,
             )
 

@@ -1,23 +1,27 @@
 """
-HAJIMI Server Demo 配置文件
+HAJIMI Server 配置文件 — OmniParser + 视觉 LLM 混合版本
+
+远程 GPU OmniParser 做元素检测，多模态 LLM 做规划与验证。
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 from core.defaults import (
     DEFAULT_A_PORT,
     DEFAULT_DEMO_KEY,
-    DEFAULT_OMNI_LOCAL_URL,
 )
 
-# 加载 .env 文件（如果存在）
-load_dotenv()
-
-_OMNI_URL = os.getenv("OMNIPARSER_URL", DEFAULT_OMNI_LOCAL_URL)
+# 加载 .env 文件 — 先检查 server/.env，再检查项目根目录
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()  # fallback: 从当前工作目录查找
 
 
 class Config:
-    """Demo 阶段配置"""
+    """HAJIMI 服务配置"""
 
     # 服务
     HOST: str = os.getenv("HAJIMI_HOST", "0.0.0.0")
@@ -27,59 +31,67 @@ class Config:
     # Demo 认证
     DEMO_KEY: str = os.getenv("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
 
-    # LLM API (支持多模态的模型)
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_BASE_URL: str = os.getenv(
-        "LLM_BASE_URL", "https://api.siliconflow.cn/v1"
-    )
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "Qwen/Qwen3.6-35B-A3B")
-    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "60"))
+    # ═════════════════════════════════════════════════════════════════════
+    # OmniParser 远程 GPU
+    # ═════════════════════════════════════════════════════════════════════
+    OMNIPARSER_URL: str = os.getenv("OMNIPARSER_URL", "http://127.0.0.1:9800")
+    OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
+    OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))
+    OMNIPARSER_RETRY_DELAY: float = float(os.getenv("OMNIPARSER_RETRY_DELAY", "3.0"))
 
-    # DeepSeek API (保留兼容)
+    # ═════════════════════════════════════════════════════════════════════
+    # LLM 提供商选择
+    # ═════════════════════════════════════════════════════════════════════
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "qwen")
+
+    # 通用 LLM（默认/回退）
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.siliconflow.cn/v1")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "Qwen/Qwen3.6-35B-A3B")
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "120"))
+
+    # 各供应商独立配置
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+    CLAUDE_API_KEY: str = os.getenv("CLAUDE_API_KEY", "")
+    CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.2-11b-vision-preview")
+
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "")
+
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2-vision")
+
+    QWEN_API_KEY: str = os.getenv("QWEN_API_KEY", "")
+    QWEN_BASE_URL: str = os.getenv("QWEN_BASE_URL", "https://api.siliconflow.cn/v1")
+    QWEN_MODEL: str = os.getenv("QWEN_MODEL", "Qwen/Qwen3.6-35B-A3B")
+
+    GLM_API_KEY: str = os.getenv("GLM_API_KEY", "")
+    GLM_BASE_URL: str = os.getenv("GLM_BASE_URL", "")
+    GLM_MODEL: str = os.getenv("GLM_MODEL", "")
+
+    # DeepSeek 兼容
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
-    DEEPSEEK_BASE_URL: str = os.getenv(
-        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
-    )
+    DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
-    # OmniParser — 本地默认 :8002；校园 GPU 在 .env 覆盖为 :9800
-    OMNIPARSER_URL: str = _OMNI_URL
-    OMNIPARSER_LOCAL_URL: str = os.getenv("OMNIPARSER_LOCAL_URL", _OMNI_URL)
-    OMNIPARSER_GPU_URL: str = os.getenv("OMNIPARSER_GPU_URL", "")
-    OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "360"))
-    OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))
-    OMNIPARSER_RETRY_DELAY: float = float(os.getenv("OMNIPARSER_RETRY_DELAY", "3.0"))
-    OMNIPARSER_PROBE_TIMEOUT: float = float(os.getenv("OMNIPARSER_PROBE_TIMEOUT", "3.0"))
-    OMNIPARSER_LOCAL_TIMEOUT: float = float(os.getenv("OMNIPARSER_LOCAL_TIMEOUT", "360"))
-    OMNIPARSER_LOCAL_MAX_SIDE: int = int(os.getenv("OMNIPARSER_LOCAL_MAX_SIDE", "1920"))
-    OMNIPARSER_MAX_ELEMENTS: int = int(os.getenv("OMNIPARSER_MAX_ELEMENTS", "80"))
-    OMNIPARSER_MIN_AREA: int = int(os.getenv("OMNIPARSER_MIN_AREA", "100"))
-    OMNIPARSER_MODEL: str = os.getenv("OMNIPARSER_MODEL", "")
-    OMNIPARSER_IMGSZ: int = int(os.getenv("OMNIPARSER_IMGSZ", "1280"))
-    OMNIPARSER_BOX_THRESHOLD: float = float(os.getenv("OMNIPARSER_BOX_THRESHOLD", "0.05"))
-    OMNIPARSER_IOU_THRESHOLD: float = float(os.getenv("OMNIPARSER_IOU_THRESHOLD", "0.1"))
-
-    # ui_detector legacy (deprecated; routes use omniparser_client)
-    DETECTOR_BACKEND: str = os.getenv("DETECTOR_BACKEND", "auto")
-    DETECTOR_AUTO_FALLBACK_REPLICATE: bool = (
-        os.getenv("DETECTOR_AUTO_FALLBACK_REPLICATE", "false").lower() == "true"
-    )
-    ALLOW_DETECTOR_FALLBACK: bool = (
-        os.getenv("ALLOW_DETECTOR_FALLBACK", "false").lower() == "true"
-    )
-    REPLICATE_API_TOKEN: str = os.getenv("REPLICATE_API_TOKEN", "")
-
-    # Demo 简化开关
+    # ═════════════════════════════════════════════════════════════════════
+    # 特性开关
+    # ═════════════════════════════════════════════════════════════════════
     USE_REAL_LLM: bool = os.getenv("USE_REAL_LLM", "true").lower() == "true"
-    STRICT_FINGERPRINT: bool = (
-        os.getenv("STRICT_FINGERPRINT", "false").lower() == "true"
-    )
+    STRICT_FINGERPRINT: bool = os.getenv("STRICT_FINGERPRINT", "false").lower() == "true"
 
-    # SetFit 模型路径
-    INTENT_MODEL_PATH: str = os.getenv(
-        "INTENT_MODEL_PATH", "server/services/intent/model"
-    )
+    # SetFit 意图分类模型
+    INTENT_MODEL_PATH: str = os.getenv("INTENT_MODEL_PATH", "server/services/intent/model")
 
 
 settings = Config()

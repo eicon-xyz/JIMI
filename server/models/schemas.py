@@ -37,7 +37,7 @@ class UIElement(BaseModel):
     """截图中识别到的 UI 元素"""
 
     element_id: str = Field(..., description="SoM 全局唯一编号，如 ~1")
-    bbox: List[int] = Field(..., min_length=4, max_length=4)
+    bbox: List[float] = Field(..., min_length=4, max_length=4)
     element_type: str = Field(
         ...,
         pattern="^(button|input|icon|menu|checkbox|dropdown|text|other)$",
@@ -73,6 +73,7 @@ class Step(BaseModel):
         pattern="^(pending|active|done|skipped|failed)$",
     )
     annotation: Optional[Annotation] = None
+    params: Optional[str] = Field(None, description="操作参数（文本/组合键/坐标字符串）")
 
 
 class Blueprint(BaseModel):
@@ -150,9 +151,12 @@ class ProcessResponse(BaseModel):
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
-    redline: Optional[RedlineInfo] = Field(
-        None, description="红线检测结果，触发时不为 None"
-    )
+
+
+class CancelRequest(BaseModel):
+    """取消任务请求"""
+
+    task_id: str = Field(..., description="任务 ID")
 
 
 class StepRequest(BaseModel):
@@ -290,3 +294,15 @@ class InspectResponse(BaseModel):
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
+
+
+class CancelRequest(BaseModel):
+    """取消任务请求"""
+
+    task_id: str = Field(..., description="任务 ID")
+
+
+class CancelRequest(BaseModel):
+    """取消任务请求"""
+
+    task_id: str = Field(..., description="任务 ID")

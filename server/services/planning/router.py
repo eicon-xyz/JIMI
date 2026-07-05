@@ -1,9 +1,12 @@
 """
-规划路由层（P0 + P2 核心实现区）
-负责：步骤生成、步骤与元素语义绑定、ProcessResponse 组装、重定位
+规划路由层 — OmniParser 元素检测 + LLM 执行计划生成
+
+管道: 截图 → OmniParser :9800 → 元素列表 → LLM → 执行计划
 """
+import json
+import logging
 import uuid
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from server.config import settings
 from server.models.schemas import (
@@ -12,156 +15,178 @@ from server.models.schemas import (
     Blueprint,
     Intent,
     ProcessResponse,
-    Annotation,
     RedlineInfo,
 )
-from server.services.llm import call_deepseek
-from server.services.omniparser_client import parse_screenshot, parse_screenshot_full
-from server.services.planning.annotation import build_annotation
 from server.services.redline_service import check_redline
 from server.services.planning.complexity_router import score_complexity, generate_l2_steps
 
+logger = logging.getLogger(__name__)
 
-# 场景 mock 元素（LLM 不可用时的 fallback）
-SCENARIO_ELEMENTS = {
+# ═══════════════════════════════════════════════════════════════════════════
+# 执行计划 LLM Prompt
+# ═══════════════════════════════════════════════════════════════════════════
+
+EXECUTOR_SYSTEM_PROMPT = """You are a desktop automation executor. Convert user instructions into executable action plans.
+
+## UI Elements on Screen
+{element_list}
+
+## Output (PURE JSON ONLY - no markdown, no thinking, just the JSON object)
+{{
+  "goal": "short task goal",
+  "steps": [
+    {{
+      "step_index": 1,
+      "action": "click",
+      "description": "click Chrome icon",
+      "target_element_id": "~3",
+      "bbox": [120, 340, 180, 410],
+      "bbox_center": [150, 375],
+      "params": null
+    }}
+  ]
+}}
+
+## Actions
+- click: left click
+- double_click: left double click
+- right_click: right click
+- type: type text (params = text to type)
+- press_key: key combo (params = "ctrl+c", "win+r", "enter")
+- scroll: scroll wheel (params = positive up, negative down)
+- wait: wait (params = seconds)
+- move: move mouse without clicking
+
+## Rules
+1. Each step MUST reference an element from the list above with element_id, bbox, bbox_center
+2. bbox_center = [int(cx), int(cy)] from the element's bbox
+3. 2-5 steps max. Be concise.
+4. Only output {{}} JSON. No explanation. No markdown. No thinking.
+5. Prefer keyboard shortcuts over GUI clicks when possible (win+r for Run, win+e for Explorer, etc)
+"""
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Mock fallbacks
+# ═══════════════════════════════════════════════════════════════════════════
+
+_MOCK_FALLBACKS = {
     "wechat": [
-        UIElement(
-            element_id="~1",
-            bbox=[120, 340, 240, 380],
-            element_type="icon",
-            text="Microsoft Edge",
-            confidence=0.95,
-            center=[180, 360],
-        ),
-        UIElement(
-            element_id="~2",
-            bbox=[860, 620, 1020, 660],
-            element_type="button",
-            text="下载",
-            confidence=0.91,
-            center=[940, 640],
-        ),
-        UIElement(
-            element_id="~3",
-            bbox=[540, 420, 740, 460],
-            element_type="input",
-            text="",
-            confidence=0.88,
-            center=[640, 440],
-        ),
+        {"action": "click", "description": "打开浏览器", "bbox_center": [150, 375], "params": None},
+        {"action": "type", "description": "输入微信官网地址", "bbox_center": [500, 70], "params": "weixin.qq.com"},
+        {"action": "click", "description": "点击下载按钮", "bbox_center": [480, 525], "params": None},
+        {"action": "click", "description": "运行安装程序", "bbox_center": [130, 630], "params": None},
+    ],
+    "notepad": [
+        {"action": "press_key", "description": "按Win+R打开运行窗口", "bbox_center": None, "params": "win+r"},
+        {"action": "type", "description": "输入notepad", "bbox_center": None, "params": "notepad"},
+        {"action": "press_key", "description": "按回车启动记事本", "bbox_center": None, "params": "enter"},
+    ],
+    "calculator": [
+        {"action": "press_key", "description": "按Win+R打开运行窗口", "bbox_center": None, "params": "win+r"},
+        {"action": "type", "description": "输入calc", "bbox_center": None, "params": "calc"},
+        {"action": "press_key", "description": "按回车启动计算器", "bbox_center": None, "params": "enter"},
     ],
     "screenshot": [
-        UIElement(
-            element_id="~1",
-            bbox=[20, 20, 60, 60],
-            element_type="icon",
-            text="截图工具",
-            confidence=0.94,
-            center=[40, 40],
-        ),
-        UIElement(
-            element_id="~2",
-            bbox=[300, 300, 500, 400],
-            element_type="button",
-            text="新建截图",
-            confidence=0.92,
-            center=[400, 350],
-        ),
+        {"action": "press_key", "description": "打开截图工具", "bbox_center": None, "params": "win+shift+s"},
+        {"action": "click", "description": "选择截图区域", "bbox_center": [500, 300], "params": None},
+        {"action": "click", "description": "保存截图", "bbox_center": [200, 600], "params": None},
     ],
     "default": [
-        UIElement(
-            element_id="~1",
-            bbox=[100, 100, 200, 140],
-            element_type="button",
-            text="开始",
-            confidence=0.90,
-            center=[150, 120],
-        ),
-        UIElement(
-            element_id="~2",
-            bbox=[300, 300, 420, 340],
-            element_type="button",
-            text="设置",
-            confidence=0.88,
-            center=[360, 320],
-        ),
+        {"action": "wait", "description": "等待界面加载", "bbox_center": None, "params": 2},
+        {"action": "click", "description": "点击目标元素", "bbox_center": [500, 300], "params": None},
     ],
 }
 
 
 def _choose_scenario(query: str) -> str:
-    """根据查询选择场景"""
     q = query.lower()
     if any(k in q for k in ["微信", "qq", "软件", "下载", "安装"]):
         return "wechat"
+    if any(k in q for k in ["记事本", "notepad", "文本"]):
+        return "notepad"
+    if any(k in q for k in ["计算器", "calc", "calculator"]):
+        return "calculator"
     if any(k in q for k in ["截图", "截屏", "snip"]):
         return "screenshot"
     return "default"
 
 
-_MOCK_FALLBACKS = {
-    "wechat": [
-        {"action": "打开浏览器", "description": "找到桌面上的浏览器图标，双击打开。", "target_element_id": "~1"},
-        {"action": "访问微信官网", "description": "在地址栏输入 weixin.qq.com 并回车。", "target_element_id": ""},
-        {"action": "点击下载按钮", "description": "在官网首页找到「下载」按钮并点击。", "target_element_id": "~2"},
-        {"action": "运行安装程序", "description": "下载完成后，双击安装包按提示完成安装。", "target_element_id": ""},
-    ],
-    "screenshot": [
-        {"action": "打开截图工具", "description": "按下 Win + Shift + S 打开系统截图工具。", "target_element_id": "~1"},
-        {"action": "选择截图区域", "description": "拖动鼠标选择要截取的区域。", "target_element_id": ""},
-        {"action": "保存截图", "description": "截图完成后，点击通知中的预览并保存。", "target_element_id": ""},
-    ],
-    "default": [
-        {"action": "观察当前界面", "description": "仔细查看屏幕上的可点击元素。", "target_element_id": "~1"},
-        {"action": "按提示操作", "description": "根据系统指引逐步完成目标。", "target_element_id": ""},
-    ],
-}
+# ═══════════════════════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════════════════════
 
-
-def generate_steps(
-    query: str,
-    elements: Optional[List[UIElement]] = None,
-    annotated_image: Optional[str] = None,
-) -> tuple[List[dict], Optional[dict]]:
-    """
-    生成操作步骤与约束条件，优先使用 LLM，失败 fallback 到 mock 数据
-
-    Args:
-        query: 用户原始查询
-        elements: 当前屏幕 UI 元素列表
-        annotated_image: SoM 标注图 base64（可选，传入时 LLM 可看图识别元素）
-
-    Returns:
-        (步骤字典列表, 约束条件字典或 None)
-    """
-    if settings.USE_REAL_LLM:
-        llm_response = call_deepseek(
-            query,
-            elements=elements,
-            image_base64=annotated_image,
+def _serialize_elements(elements: List[UIElement]) -> str:
+    """序列化 UI 元素列表。只传桌面区域的大按钮（图标）。"""
+    lines = []
+    for el in elements:
+        if el.element_type != 'button':
+            continue
+        bbox = el.bbox
+        area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        # Desktop icons: y between 0-300 (top area), area > 5000 (real icons)
+        # Taskbar icons have y > 500 (bottom), OmniParser toolbar buttons y < 30 (too small)
+        if bbox[1] > 300 or area < 5000 or bbox[3] < 50:
+            continue
+        cx = int((bbox[0] + bbox[2]) / 2)
+        cy = int((bbox[1] + bbox[3]) / 2)
+        lines.append(
+            f'{el.element_id}: center=[{cx},{cy}]'
         )
-        if llm_response:
-            steps = llm_response.get("steps", [])
-            constraints = llm_response.get("constraints")
-            return steps, constraints
-
-    scenario = _choose_scenario(query)
-    # mock fallback 默认无约束
-    return _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy(), None
+    return '\n'.join(lines)
 
 
-def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResponse:
+def _call_executor_llm(query: str, element_text: str = "", image_base64: Optional[str] = None) -> Optional[dict]:
+    """调用 LLM 生成执行计划。有 OmniParser 元素时用精确 bbox，否则纯看图。"""
+    from server.services.llm.providers import call_llm, extract_json_object
+
+    if element_text:
+        user_text = f'Elements:\n{element_text}\n\nUser: {query}. Pick the correct element_id from the list based on what you see in the screenshot. Output JSON only.'
+        sp = 'Desktop automation executor. You see a screenshot with labeled bounding boxes. Output ONLY JSON: {\"goal\":\"...\",\"steps\":[{\"step_index\":1,\"action\":\"double_click\",\"description\":\"double click the target icon\",\"target_element_id\":\"~N\",\"bbox_center\":[cx,cy]}]}. Use the element list for bbox_center. No thinking. No markdown.'
+        max_tok = 1024
+    else:
+        user_text = f'{query} - create execution plan. JSON only.'
+        sp = 'Desktop automation executor. Output ONLY JSON: {\"goal\":\"...\",\"steps\":[{\"step_index\":1,\"action\":\"press_key\",\"description\":\"...\",\"params\":null}]}. Actions: click,double_click,type,press_key,wait. No thinking.'
+        max_tok = 512
+
+    images = None
+    if image_base64:
+        images = [{"base64Jpeg": image_base64, "label": "Screen"}]
+
+    try:
+        raw = call_llm(
+            user_text=user_text, images=images, system_prompt=sp,
+            temperature=0.1, max_tokens=max_tok, timeout=60,
+        )
+        data = extract_json_object(raw)
+        return data
+    except Exception as e:
+        logger.warning(f"Executor LLM call failed: {e}")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 主入口
+# ═══════════════════════════════════════════════════════════════════════════
+
+def process_query(
+    query: str,
+    image_base64: Optional[str] = None,
+    screen_width: int = 1920,
+    screen_height: int = 1080,
+) -> ProcessResponse:
     """
-    处理用户查询，生成完整的 ProcessResponse
+    完整管道：截图 → OmniParser 元素检测 → LLM 执行计划 → ProcessResponse。
 
     Args:
-        query: 用户原始查询
-        image_base64: Base64 编码截图（可选）
+        query: 用户自然语言指令
+        image_base64: Base64 截图（含 data URI 前缀）
+        screen_width: 屏幕宽度
+        screen_height: 屏幕高度
 
     Returns:
-        完整的处理响应
+        ProcessResponse 含 step 列表，每步带 bbox_center
     """
-    # 0. 红线检测 — 在所有处理之前拦截违规请求
+    # 0. 红线检测
     redline = check_redline(query)
     if redline.triggered:
         return ProcessResponse(
@@ -190,9 +215,8 @@ def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResp
             ),
         )
 
-    # 1. 复用已冻结的意图与指代逻辑，避免重复实现
+    # 1. 意图分类
     from server.services.llm_ai import classify_intent, detect_reference_type
-
     category, summary, confidence = classify_intent(query)
     reference_type = detect_reference_type(query)
     intent = Intent(
@@ -203,82 +227,155 @@ def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResp
         needs_clarification=confidence < 0.80,
     )
 
-    # ── L2/L3 路由：先评分，后续元素解析和步骤生成据此分流 ──
+    # ── 2. L2/L3 路由（MVP 阶段全部走 L3，L2 模板暂不适用自动执行）──
     complexity = score_complexity(query)
-    route = "L2" if complexity < 30 else "L3"
+    route = "L3"  # MVP: 跳过 L2，全部走 LLM 执行计划
 
-    # 获取元素：优先 OmniParser 真实解析，失败则用场景 mock
+    ui_elements: List[UIElement] = []
     annotated_image: Optional[str] = None
-    reference_resolution: Optional[List[int]] = None
-    detection_meta: Optional[dict] = None
-
-    if image_base64:
-        parse_result = parse_screenshot_full(image_base64)
-        if parse_result.elements:
-            elements = parse_result.elements
-            annotated_image = parse_result.annotated_image
-            reference_resolution = parse_result.reference_resolution
-            detection_meta = parse_result.detection_meta
-            if detection_meta:
-                detection_meta['route'] = route
-                detection_meta['complexity'] = complexity
-        else:
-            scenario = _choose_scenario(query)
-            elements = SCENARIO_ELEMENTS[scenario].copy()
-    else:
-        scenario = _choose_scenario(query)
-        elements = SCENARIO_ELEMENTS[scenario].copy()
-        detection_meta = detection_meta or {}
-        detection_meta['route'] = route
-        detection_meta['complexity'] = complexity
-
+    reference_resolution: Optional[List[int]] = [screen_width, screen_height]
+    detection_meta: dict = {
+        "route": route,
+        "complexity": complexity,
+        "backend": "omniparser",
+    }
     raw_steps: Optional[List[dict]] = None
-    constraints: Optional[dict] = None
 
+    # ── 3. 截图 → OmniParser 元素检测 ──
+    if image_base64 and route == "L3":
+        try:
+            from server.services.omniparser_client import parse_screenshot_full
+
+            parse_result = parse_screenshot_full(image_base64)
+            if parse_result.elements:
+                ui_elements = parse_result.elements
+                annotated_image = parse_result.annotated_image
+                if parse_result.reference_resolution:
+                    reference_resolution = parse_result.reference_resolution
+                detection_meta.update(
+                    parse_result.detection_meta or {}
+                )
+                logger.info(
+                    f"OmniParser: {len(ui_elements)} elements in "
+                    f"{detection_meta.get('latency_ms', 0)}ms"
+                )
+            else:
+                logger.warning("OmniParser returned 0 elements")
+                detection_meta["element_count"] = 0
+        except Exception as e:
+            logger.error(f"OmniParser call failed: {e}")
+            detection_meta["omni_error"] = str(e)
+
+    # L2 快路径
     if route == "L2":
-        # L2 快路径：本地模板匹配
-        raw_steps = generate_l2_steps(query, elements)
+        raw_steps = generate_l2_steps(query, ui_elements)
 
+    # ── 4. LLM 生成执行计划 ──
+    if not raw_steps and settings.USE_REAL_LLM and ui_elements:
+        # Icon Stitch: crop + zoom + stitch desktop icons, identify target in 1 LLM call
+        from server.services.icon_stitch import build_icon_strips_from_client_elements, identify_from_strips
+        from core.screen_capture import capture_screen
+
+        # Filter desktop elements (same criteria as _serialize_elements)
+        desktop_elements = [
+            el for el in ui_elements
+            if el.element_type == 'button'
+            and el.bbox[1] < 300
+            and (el.bbox[2] - el.bbox[0]) * (el.bbox[3] - el.bbox[1]) > 5000
+            and el.bbox[3] > 50
+        ]
+
+        if desktop_elements:
+            screen_img = capture_screen()
+            if screen_img:
+                strips = build_icon_strips_from_client_elements(screen_img, desktop_elements)
+                target_element_id = identify_from_strips(strips, query)
+                logger.info(f"Icon stitch: '{query}' -> {target_element_id}")
+
+                if target_element_id:
+                    # Find the matching element to get OmniParser bbox center
+                    for el in ui_elements:
+                        if el.element_id == target_element_id:
+                            cx = int((el.bbox[0] + el.bbox[2]) / 2)
+                            cy = int((el.bbox[1] + el.bbox[3]) / 2)
+                            raw_steps = [{
+                                "step_index": 1,
+                                "action": "double_click",
+                                "description": f"Open {query}",
+                                "target_element_id": target_element_id,
+                                "bbox_center": [cx, cy],
+                                "params": f"{cx},{cy}",
+                            }]
+                            summary = query
+                            break
+
+        # Fallback: old LLM plan (only if icon match failed)
+        if not raw_steps:
+            element_text = _serialize_elements(ui_elements)
+            llm_data = _call_executor_llm(query, element_text, image_base64)
+
+        if llm_data and llm_data.get("steps"):
+            raw_steps = llm_data["steps"]
+            llm_goal = llm_data.get("goal", "")
+            if llm_goal and len(llm_goal) <= 100:
+                summary = llm_goal
+            logger.info(f"LLM plan with OmniParser: {summary} ({len(raw_steps)} steps)")
+
+    # Fallback: pure vision (no OmniParser elements to use)
+    if not raw_steps and settings.USE_REAL_LLM and image_base64:
+        llm_data = _call_executor_llm(query, "", image_base64)
+        if llm_data and llm_data.get("steps"):
+            raw_steps = llm_data["steps"]
+            logger.info(f"LLM plan (vision-only fallback): {len(raw_steps)} steps")
+
+    # Mock fallback
     if not raw_steps:
-        # L3 慢路径（或 L2 模板未命中降级）：调用 LLM
-        route = "L3"
-        raw_steps, constraints = generate_steps(
-            query, elements, annotated_image=annotated_image
-        )
-        if raw_steps is None:
-            raw_steps = []
+        scenario = _choose_scenario(query)
+        logger.warning(f"No LLM steps generated, using mock fallback: {scenario}")
+        raw_steps = _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy()
 
-    # ── 按 element_id 索引元素，实现语义绑定 ──
-    element_by_id = {e.element_id: e for e in elements}
-
+    # ── 6. 构建 Step 列表 ──
     steps: List[Step] = []
-    for i, raw in enumerate(raw_steps):
-        step_index = i + 1
-        target_id = raw.get("target_element_id", "")
-        element = element_by_id.get(target_id) if target_id else None
+    for step_dict in raw_steps:
+        step_idx = step_dict.get("step_index", len(steps) + 1)
+        raw_action = step_dict.get("action", "click")
+        raw_desc = step_dict.get("description", f"Step {step_idx}")
+        raw_params = step_dict.get("params")
 
-        if element:
-            annotation = build_annotation(
-                element,
-                annotation_type="arrow_highlight" if step_index == 1 else "highlight_only",
-                label_text=element.element_id,
-            )
-        else:
-            annotation = None
+        # Normalize params
+        if isinstance(raw_params, dict):
+            if "keys" in raw_params:
+                raw_params = "+".join(raw_params["keys"])
+            elif "text" in raw_params:
+                raw_params = raw_params["text"]
+            elif "seconds" in raw_params:
+                raw_params = str(raw_params["seconds"])
+            elif "secs" in raw_params:
+                raw_params = str(raw_params["secs"])
+            elif "x" in raw_params and "y" in raw_params:
+                raw_params = f"{int(raw_params['x'])},{int(raw_params['y'])}"
+            else:
+                raw_params = None
 
-        steps.append(
-            Step(
-                step_index=step_index,
-                action=raw["action"],
-                description=raw["description"],
-                target_element_id=target_id if element else None,
-                status="pending",
-                annotation=annotation,
-            )
-        )
+        # Extract bbox_center from LLM response or params
+        bbox_center = step_dict.get("bbox_center")
+        if bbox_center is None and isinstance(raw_params, str) and ',' in raw_params:
+            parts = raw_params.split(',')
+            if len(parts) == 2 and parts[0].strip().isdigit():
+                bbox_center = [int(parts[0].strip()), int(parts[1].strip())]
 
-    if steps:
-        steps[0].status = "active"
+        # Store bbox_center in params as "x,y" so engine can use it
+        if bbox_center and not raw_params:
+            raw_params = f'{bbox_center[0]},{bbox_center[1]}'
+
+        steps.append(Step(
+            step_index=step_idx,
+            action=raw_action,
+            description=raw_desc,
+            target_element_id=step_dict.get("target_element_id"),
+            params=raw_params if isinstance(raw_params, (str, type(None))) else str(raw_params) if raw_params else None,
+            status="pending",
+        ))
 
     blueprint = Blueprint(
         name=summary,
@@ -291,117 +388,83 @@ def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResp
         task_id=str(uuid.uuid4()),
         success=True,
         intent=intent,
-        ui_elements=elements,
-        annotated_image=annotated_image,
+        ui_elements=ui_elements,
+        annotated_image=annotated_image or image_base64,
         blueprint=blueprint,
         steps=steps,
-        constraints=constraints,
         reference_resolution=reference_resolution,
         detection_meta=detection_meta,
     )
 
 
-# ────────────────────────── 重定位 ──────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# 兼容旧接口
+# ═══════════════════════════════════════════════════════════════════════════
 
-_RELOCATE_PROMPT = """你是一个桌面操作指引助手。
+def generate_steps(
+    query: str,
+    elements: Optional[List[UIElement]] = None,
+    annotated_image: Optional[str] = None,
+):
+    """
+    [兼容] 生成操作步骤 — 供旧测试使用。
+    不调用 OmniParser，需要外部传入元素。
+    """
+    if not elements or not settings.USE_REAL_LLM:
+        scenario = _choose_scenario(query)
+        return _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy(), None
 
-下方是当前屏幕截图中的所有 UI 元素。用户需要找到某个操作对应的元素。
+    element_text = _serialize_elements(elements)
+    llm_data = _call_executor_llm(query, element_text, annotated_image)
 
-你的任务：从 UI 元素列表中选择**最匹配**用户操作的元素的 `element_id`。
+    if llm_data and llm_data.get("steps"):
+        return llm_data["steps"], llm_data.get("constraints")
 
-## 当前屏幕 UI 元素
-{element_list}
-
-## 输出格式
-严格按以下 JSON 返回，不要 markdown 代码块：
-{{
-  "target_element_id": "~3",
-  "confidence": 0.85
-}}
-
-规则：
-1. 如果当前屏幕有匹配的元素，返回该元素的 `element_id` 和置信度。
-2. 如果当前屏幕依然没有对应元素（如步骤是"等待下载完成"），`target_element_id` 为空字符串 `""`，`confidence` 为 0.0。
-3. 优先选择 `text` 字段语义最接近的元素；其次看 `type` 匹配（button/input/icon）。
-4. 置信度低于 0.60 时，`target_element_id` 应为空。"""
-
-
-def _text_match_element(
-    description: str, action: str, elements: List[UIElement]
-) -> Optional[Tuple[UIElement, float]]:
-    """简单文本匹配 fallback，找不到时返回 None"""
-    keywords = set(description.lower().split() + action.lower().split())
-    best: Optional[Tuple[UIElement, float]] = None
-    for e in elements:
-        text = (e.text or "").lower()
-        if not text:
-            continue
-        # 计算关键词命中率
-        hits = sum(1 for kw in keywords if kw in text)
-        if hits > 0:
-            score = hits / max(len(keywords), 1)
-            if best is None or score > best[1]:
-                best = (e, score)
-    return best
+    scenario = _choose_scenario(query)
+    return _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy(), None
 
 
 def relocate_step(
     step_action: str,
     step_description: str,
     image_base64: str,
-) -> Tuple[Optional[str], Optional[Annotation], List[UIElement]]:
+    screen_width: int = 1920,
+    screen_height: int = 1080,
+):
     """
-    对新截图重定位指定步骤，返回匹配的 element_id、标注、全量元素列表。
-
-    Args:
-        step_action: 步骤的动作（如"点击下载按钮"）
-        step_description: 步骤的详细描述
-        image_base64: 新截图的 Base64
-
-    Returns:
-        (target_element_id, annotation, all_elements)
+    对当前屏幕重定位指定步骤（用于操作失败后的恢复）。
+    调用 OmniParser 重新检测元素 → 匹配最接近的元素。
     """
-    elements = parse_screenshot(image_base64)
+    try:
+        from server.services.omniparser_client import parse_screenshot_full
+        parse_result = parse_screenshot_full(image_base64)
+        elements = parse_result.elements
+    except Exception:
+        return None, None, []
+
     if not elements:
         return None, None, []
 
-    target_id: Optional[str] = None
-    matched_element: Optional[UIElement] = None
+    # 找最相关元素：优先 text 匹配，否则 type=button 优先级最高
+    best = None
+    best_score = 0
+    for el in elements:
+        score = 0
+        if el.text and any(w in el.text for w in step_description[:10]):
+            score += 3
+        if el.element_type in ("button", "icon"):
+            score += 2
+        if el.confidence > 0.7:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = el
 
-    # 1) 尝试 LLM 匹配
-    if settings.USE_REAL_LLM:
-        from server.services.perception import serialize_elements
-        relocate_prompt = _RELOCATE_PROMPT.format(element_list=serialize_elements(elements))
-        relocate_result = call_deepseek(
-            query=f"请为步骤「{step_description}」（动作：{step_action}）匹配最合适的元素",
-            elements=None,  # elements already embedded in formatted prompt
-            system_prompt=relocate_prompt,
-            temperature=0.1,
-            max_tokens=2000,
-            timeout=settings.LLM_TIMEOUT or settings.DEEPSEEK_TIMEOUT,
+    if best:
+        bbox = best.bbox
+        return (
+            best.element_id,
+            {"type": "highlight_only", "highlight_bbox": [int(v) for v in bbox]},
+            [e.model_dump() for e in elements],
         )
-        if relocate_result:
-            candidate_id = relocate_result.get("target_element_id", "")
-            if candidate_id:
-                element_by_id = {e.element_id: e for e in elements}
-                matched_element = element_by_id.get(candidate_id)
-                if matched_element:
-                    target_id = candidate_id
-
-    # 2) Fallback: 文本关键词匹配
-    if not matched_element:
-        result = _text_match_element(step_description, step_action, elements)
-        if result:
-            matched_element, _ = result
-            target_id = matched_element.element_id
-
-    # 3) 构建标注
-    annotation: Optional[Annotation] = None
-    if matched_element:
-        annotation = build_annotation(
-            matched_element,
-            annotation_type="arrow_highlight",
-            label_text=matched_element.element_id,
-        )
-
-    return target_id, annotation, elements
+    return None, None, []
