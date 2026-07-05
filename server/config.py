@@ -93,5 +93,9 @@ class Config:
     # SetFit 意图分类模型
     INTENT_MODEL_PATH: str = os.getenv("INTENT_MODEL_PATH", "server/services/intent/model")
 
+    # Agent loop tuning
+    MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "15"))
+    STEP_RETRY_LIMIT: int = int(os.getenv("STEP_RETRY_LIMIT", "1"))
+
 
 settings = Config()
