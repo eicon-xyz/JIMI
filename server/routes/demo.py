@@ -108,15 +108,13 @@ async def execute_task(
     demo_key: str = Depends(verify_demo_key),
 ):
     """
-    接收截图与用户指令，生成执行计划并后台自动执行。
-
-    返回 task_id，前端立即拿到计划后通过 GET /stream/{task_id} 订阅 SSE。
+    接收截图与用户指令，生成执行计划并后台通过Agent循环执行。
     """
     from server.services.planning.router import process_query as plan_query
-    from server.services.executor.engine import run_plan
+    from server.services.executor.engine import run_plan_agent_loop, get_cancel_event
     from server.services.executor.safety import check_query
 
-    # 0. 红线拦截（整体指令）
+    # 0. Redline
     safety = check_query(request.query)
     if safety.level == "red":
         return {
@@ -124,7 +122,7 @@ async def execute_task(
             "error": {"code": "REDLINE", "message": safety.reason},
         }
 
-    # 1. 生成执行计划（内含 OmniParser 检测 + LLM 规划）
+    # 1. Planning (text-only, no OmniParser needed for planning)
     try:
         response = plan_query(
             request.query,
@@ -135,7 +133,7 @@ async def execute_task(
     except Exception as e:
         return {
             "success": False,
-            "error": {"code": "LLM_FAILED", "message": str(e)},
+            "error": {"code": "PLANNING_FAILED", "message": str(e)},
         }
 
     if not response.success:
@@ -147,63 +145,37 @@ async def execute_task(
             },
         }
 
-    # 红线记录
-    if not response.success:
-        return {
-            "success": False,
-            "error": {"code": "REDLINE", "message": "请求被拦截"},
-        }
-
-    # 2. 保存到内存
+    # 2. Save to stores
     task_store.create(response, request.query)
     TaskRepository.create_from_response(response, request.query)
 
-    # 3. 后台线程执行（带验证函数）
-    from server.services.llm_ai import verify_step
+    # 3. Get cancel event BEFORE starting thread
+    cancel_event = get_cancel_event(response.task_id)
 
+    # 4. Convert steps to dicts for engine
     steps_raw = [s.model_dump() for s in response.steps]
 
-    # 截图函数：用 mss 截取当前屏幕
-    def capture_screen_jpeg() -> str:
-        try:
-            import mss
-            from PIL import Image
-            from io import BytesIO
-            import base64
-            with mss.mss() as sct:
-                monitor = sct.monitors[1]
-                img = sct.grab(monitor)
-                pil = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
-                # 压缩到最长边 1024px
-                w, h = pil.size
-                if max(w, h) > 1024:
-                    ratio = 1024 / max(w, h)
-                    pil = pil.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-                buf = BytesIO()
-                pil.save(buf, format="JPEG", quality=70)
-                return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-        except Exception:
-            return ""
-
+    # 5. Background Agent Loop
     thread = threading.Thread(
-        target=run_plan,
-        args=(response.task_id, steps_raw),
-        kwargs={"verify_fn": verify_step, "screenshot_fn": capture_screen_jpeg},
+        target=run_plan_agent_loop,
+        args=(response.task_id, response.goal, steps_raw, cancel_event),
         daemon=True,
     )
     thread.start()
 
-    # 4. 立即返回 plan
+    # 6. Return plan immediately
     return {
         "task_id": response.task_id,
         "success": True,
         "plan": {
-            "goal": response.intent.summary,
+            "goal": response.goal,
             "total_steps": len(response.steps),
-            "steps": steps_raw,
+            "steps": [
+                {"step_index": s.step_index, "instruction": s.instruction}
+                for s in response.steps
+            ],
         },
         "screenshot_base64": response.annotated_image,
-        "reference_resolution": response.reference_resolution,
         "detection_meta": response.detection_meta,
     }
 
@@ -230,7 +202,7 @@ async def stream_events(task_id: str):
             try:
                 event = q.get(timeout=30)  # 30s 超时发心跳
                 yield _format_sse(event["event"], event["data"])
-                if event["event"] in ("task_done", "task_error"):
+                if event["event"] in ("task_done", "task_failed", "task_cancelled"):
                     break
             except Exception:
                 # 超时发心跳保活
