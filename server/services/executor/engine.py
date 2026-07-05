@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 _event_queues: dict[str, queue.Queue] = {}
 _queues_lock = threading.Lock()
 _cancel_flags: dict[str, bool] = {}
+_cancel_events: dict[str, threading.Event] = {}
 _cancel_lock = threading.Lock()
 
 
@@ -50,6 +51,7 @@ def register_task(task_id: str) -> queue.Queue:
         _event_queues[task_id] = q
     with _cancel_lock:
         _cancel_flags[task_id] = False
+        _cancel_events[task_id] = threading.Event()
     logger.info(f"[engine] registered task {task_id}")
     return q
 
@@ -57,11 +59,25 @@ def register_task(task_id: str) -> queue.Queue:
 def cancel_task(task_id: str) -> bool:
     """取消任务。"""
     with _cancel_lock:
+        event = _cancel_events.get(task_id)
+        if event:
+            event.set()
+            logger.info(f"[engine] cancel event set for {task_id}")
+            _cancel_flags[task_id] = True
+            return True
+    # Fallback to old boolean cancel flag for backward compat
+    with _cancel_lock:
         if task_id in _cancel_flags:
             _cancel_flags[task_id] = True
-            logger.info(f"[engine] cancel flag set for {task_id}")
+            logger.info(f"[engine] cancel flag set for {task_id} (legacy)")
             return True
     return False
+
+
+def get_cancel_event(task_id: str) -> threading.Event:
+    """获取任务的取消 Event，不存在时返回一个已清除的 Event。"""
+    with _cancel_lock:
+        return _cancel_events.get(task_id, threading.Event())
 
 
 def unregister_task(task_id: str) -> None:
@@ -69,182 +85,141 @@ def unregister_task(task_id: str) -> None:
     with _queues_lock:
         _event_queues.pop(task_id, None)
     with _cancel_lock:
+        _cancel_events.pop(task_id, None)
         _cancel_flags.pop(task_id, None)
     logger.info(f"[engine] unregistered task {task_id}")
 
 
-def run_plan(
+def run_plan_agent_loop(
     task_id: str,
+    goal: str,
     steps: list[dict],
-    verify_fn=None,
-    screenshot_fn=None,
+    cancel_event: threading.Event,
 ) -> None:
     """
-    逐步执行操作计划。此函数在后台线程运行。
+    Execute a plan using the Execution Agent loop.
+    Pushes SSE events for real-time observability.
 
     Args:
-        task_id: 任务 ID
-        steps: 执行步骤列表 [{step_index, action, description, bbox_center, params, ...}]
-        verify_fn: callable(image_base64, step) -> dict — 截图验证函数（可选）
-        screenshot_fn: callable() -> str — 截取当前屏幕返回 base64 JPEG（可选）
+        task_id: Task identifier
+        goal: Overall task goal from Planning Agent
+        steps: List of step dicts [{step_index, instruction, ...}]
+        cancel_event: Set by /cancel endpoint
     """
+    from server.services.executor.agent import ExecutionAgent
+    from server.models.schemas import ExecutedStep
+
     q = register_task(task_id)
-    total = len(steps)
-    completed = 0
-    failed = 0
+    agent = ExecutionAgent()
+    previous_steps: list[dict] = []
+    all_done = True
 
-    _push_event(task_id, "plan_ready", {
-        "task_id": task_id,
-        "total_steps": total,
-        "steps": steps,
-    })
-
-    for step in steps:
-        # 检查取消标志
-        if _is_cancelled(task_id):
-            _push_event(task_id, "task_error", {
-                "task_id": task_id,
-                "error": "用户取消",
-            })
+    for step_dict in steps:
+        if cancel_event.is_set():
+            _push_event(task_id, "task_cancelled", {})
+            all_done = False
             break
 
-        step_idx = step.get("step_index", completed + 1)
-        description = step.get("description", f"步骤 {step_idx}")
-        action = step.get("action", "click")
-        bbox_center = step.get("bbox_center")
-        params = step.get("params")
+        step_idx = step_dict["step_index"]
+        instruction = step_dict["instruction"]
 
-        # Normalize "x,y" string params or coord params to bbox_center
-        if bbox_center is None and isinstance(params, str) and ',' in params:
-            parts = params.split(',')
-            if len(parts) == 2:
-                try:
-                    bbox_center = [int(parts[0].strip()), int(parts[1].strip())]
-                except ValueError:
-                    pass
-
-        # ── 安全管控 ──
-        safety = check_step(description)
-        if safety.level == "red":
-            _push_event(task_id, "step_blocked", {
-                "step_index": step_idx,
-                "description": description,
-                "reason": safety.reason,
-                "risk_level": "red",
-            })
-            step["status"] = "blocked"
-            failed += 1
-            _push_event(task_id, "log", {
-                "level": "warn",
-                "message": f"步骤 {step_idx} 被拦截: {safety.reason}",
-            })
-            continue
-
-        if safety.level == "yellow":
-            _push_event(task_id, "log", {
-                "level": "warn",
-                "message": f"步骤 {step_idx} 需注意: {safety.reason}（当前 MVP 自动放行）",
-            })
-
-        # ── 执行步骤 ──
         _push_event(task_id, "step_start", {
             "step_index": step_idx,
-            "action": action,
-            "description": description,
-            "bbox_center": bbox_center,
+            "instruction": instruction,
         })
 
-        if bbox_center:
-            _push_event(task_id, "step_executing", {
-                "step_index": step_idx,
-                "detail": f"移动鼠标到 ({bbox_center[0]},{bbox_center[1]})",
-            })
+        # Build ExecutedStep
+        es = ExecutedStep(
+            step_index=step_idx,
+            instruction=instruction,
+            status="executing",
+        )
 
-        t0 = time.time()
+        # Run agent loop for this step
         try:
-            result = execute_action(action, bbox_center, params)
-        except Exception as exc:
-            logger.exception(f"step {step_idx} execution error")
-            result = {"success": False, "error": str(exc)}
+            result = agent.execute_step(
+                step=es,
+                goal=goal,
+                previous_steps=previous_steps,
+                cancel_event=cancel_event,
+            )
+        except Exception as e:
+            logger.exception(f"Step {step_idx} execution crashed")
+            result = ExecutedStep(
+                step_index=step_idx,
+                instruction=instruction,
+                status="failed",
+                action_summary=f"crash: {e}",
+            )
 
-        duration_ms = int((time.time() - t0) * 1000)
-
-        if not result.get("success"):
-            # ── 重试 1 次 ──
-            _push_event(task_id, "step_retry", {
-                "step_index": step_idx,
-                "attempt": 2,
-                "error": result.get("error", "执行失败"),
-            })
-            _push_event(task_id, "log", {
-                "level": "warn",
-                "message": f"步骤 {step_idx} 失败，重试中... ({result.get('error','')})",
-            })
-            try:
-                result = execute_action(action, bbox_center, params)
-                duration_ms = int((time.time() - t0) * 1000)
-            except Exception as exc:
-                result = {"success": False, "error": str(exc)}
-
-        if result.get("success"):
-            step["status"] = "done"
-            step["duration_ms"] = duration_ms
-            completed += 1
+        if result.status == "done":
             _push_event(task_id, "step_done", {
                 "step_index": step_idx,
-                "duration_ms": duration_ms,
-                "verified": True,
+                "action_summary": result.action_summary or "",
             })
-            _push_event(task_id, "log", {
-                "level": "info",
-                "message": f"✅ 步骤 {step_idx} 完成 ({duration_ms}ms): {result}",
+            previous_steps.append({
+                "index": step_idx,
+                "instruction": instruction,
+                "status": "done",
+                "action_summary": result.action_summary or "completed",
             })
         else:
-            step["status"] = "failed"
-            step["error"] = result.get("error", "")
-            failed += 1
+            # Retry once
+            logger.warning(f"Step {step_idx} failed, retrying once...")
+            _push_event(task_id, "log", {
+                "level": "warn",
+                "message": f"步骤 {step_idx} 失败，重试中... ({result.action_summary})",
+            })
+            try:
+                agent.clear_element_map()
+                retry_result = agent.execute_step(
+                    step=es,
+                    goal=goal,
+                    previous_steps=previous_steps,
+                    cancel_event=cancel_event,
+                )
+                if retry_result.status == "done":
+                    _push_event(task_id, "step_done", {
+                        "step_index": step_idx,
+                        "action_summary": retry_result.action_summary or "",
+                    })
+                    previous_steps.append({
+                        "index": step_idx,
+                        "instruction": instruction,
+                        "status": "done",
+                        "action_summary": retry_result.action_summary or "completed (retry)",
+                    })
+                    continue
+            except Exception as e:
+                logger.exception(f"Step {step_idx} retry crashed")
+
             _push_event(task_id, "step_failed", {
                 "step_index": step_idx,
-                "error": result.get("error", ""),
-                "will_retry": False,
+                "reason": result.action_summary or "step failed after retry",
             })
-            _push_event(task_id, "log", {
-                "level": "error",
-                "message": f"❌ 步骤 {step_idx} 失败: {result.get('error','')}",
-            })
+            all_done = False
+            break
 
-        # ── 截图验证（如果提供了验证函数）──
-        if verify_fn and screenshot_fn:
-            try:
-                img_b64 = screenshot_fn()
-                if img_b64:
-                    _push_event(task_id, "screenshot", {
-                        "image_base64": img_b64,
-                    })
-                    v_result = verify_fn(img_b64, step)
-                    if v_result.get("status") not in ("done",):
-                        _push_event(task_id, "log", {
-                            "level": "warn",
-                            "message": f"验证: 步骤 {step_idx} 可能未完全完成 ({v_result.get('status','')})",
-                        })
-            except Exception as e:
-                logger.warning(f"screenshot/verify error at step {step_idx}: {e}")
+    if all_done:
+        _push_event(task_id, "task_done", {
+            "task_id": task_id,
+            "goal": goal,
+            "total_steps": len(steps),
+            "completed_steps": len(previous_steps),
+        })
+    else:
+        _push_event(task_id, "task_failed", {
+            "reason": "step execution failed or cancelled",
+            "failed_step": len(previous_steps) + 1,
+        })
 
-        # ── 步骤间等待 ──
-        time.sleep(1.5)
-
-    # ── 任务完成 ──
-    _push_event(task_id, "task_done", {
-        "task_id": task_id,
-        "success": failed == 0,
-        "steps_completed": completed,
-        "steps_failed": failed,
-        "total_steps": total,
-    })
-
-    # 延迟清理（让 SSE 客户端读完最后的事件）
+    # Delayed cleanup
     def _cleanup():
         time.sleep(3)
         unregister_task(task_id)
 
     threading.Thread(target=_cleanup, daemon=True).start()
+
+
+# ── Legacy alias for backward compat ──
+run_plan = run_plan_agent_loop
