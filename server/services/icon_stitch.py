@@ -17,7 +17,7 @@ import mss
 logger = logging.getLogger(__name__)
 
 # Sizes
-ICON_SIZE = 128  # target crop size (square)
+ICON_SIZE = 200  # target crop size (square)
 MAX_PER_STRIP = 4  # max icons per strip image
 LABEL_HEIGHT = 24  # pixels for label below each icon
 PADDING = 4  # pixels between icons
@@ -155,12 +155,14 @@ def identify_from_strips(
 
     system_prompt = (
         "You are an icon identifier. You see enlarged desktop icons with element IDs "
-        "below each icon. Find the specified target app icon. "
+        "below each icon. Read the text on each icon carefully. "
+        "Find the specified target app icon. "
         'Output ONLY: {"element_id": "~N"}. No thinking. No explanation.'
     )
 
     user_text = (
         f"These are enlarged desktop icons. Each has its element ID below it. "
+        f"Look at the icon image and any readable text on it. "
         f"Find the icon for: {target_name}. "
         f"Return ONLY the element_id as JSON."
     )

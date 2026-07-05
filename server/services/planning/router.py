@@ -281,7 +281,7 @@ def process_query(
             el for el in ui_elements
             if el.element_type == 'button'
             and el.bbox[1] < 300
-            and (el.bbox[2] - el.bbox[0]) * (el.bbox[3] - el.bbox[1]) > 5000
+            and (el.bbox[2] - el.bbox[0]) * (el.bbox[3] - el.bbox[1]) > 500
             and el.bbox[3] > 50
         ]
 
