@@ -80,6 +80,86 @@ class ParseResult:
     detection_meta: Optional[dict] = None
 
 
+def _compute_spatial_relations(elements: List[UIElement]) -> None:
+    """Compute left/right/top/bottom neighbor relations for all elements.
+
+    Mutates elements in-place, populating their *_elem_ids fields.
+
+    Same row: y-axis IoU >= 0.3
+    Top/bottom: y-axis overlap >= 0.1 (more lenient — elements can span rows)
+    """
+    n = len(elements)
+    if n == 0:
+        return
+
+    # Reset all relation fields first
+    for el in elements:
+        el.left_elem_ids = []
+        el.right_elem_ids = []
+        el.top_elem_ids = []
+        el.bottom_elem_ids = []
+
+    for i in range(n):
+        a = elements[i]
+        ay1, ay2 = a.bbox[1], a.bbox[3]
+        ax1, ax2 = a.bbox[0], a.bbox[2]
+        ah = ay2 - ay1
+        aw = ax2 - ax1
+        if ah <= 0:
+            continue
+
+        left_candidates = []
+        right_candidates = []
+        top_candidates = []
+        bottom_candidates = []
+
+        for j in range(n):
+            if i == j:
+                continue
+            b = elements[j]
+            by1, by2 = b.bbox[1], b.bbox[3]
+            bx1, bx2 = b.bbox[0], b.bbox[2]
+            bh = by2 - by1
+            bw = bx2 - bx1
+            if bh <= 0:
+                continue
+
+            # y-axis intersection over union (for same-row detection)
+            y_overlap = max(0, min(ay2, by2) - max(ay1, by1))
+            y_union = max(ay2, by2) - min(ay1, by1)
+            y_iou = y_overlap / y_union if y_union > 0 else 0
+
+            # Same row for left/right: y-axis IoU >= 0.3
+            if y_iou >= 0.3:
+                if b.bbox[2] <= a.bbox[0]:  # b is to the left of a
+                    left_candidates.append((j, a.bbox[0] - b.bbox[2]))
+                elif b.bbox[0] >= a.bbox[2]:  # b is to the right of a
+                    right_candidates.append((j, b.bbox[0] - a.bbox[2]))
+
+            # Top/bottom: share horizontal space (x-overlap) AND one is above/below
+            # Use x-axis overlap ratio >= 0.1 (elements in same column)
+            x_overlap = max(0, min(ax2, bx2) - max(ax1, bx1))
+            x_union = max(ax2, bx2) - min(ax1, bx1)
+            x_iou = x_overlap / x_union if x_union > 0 else 0
+
+            if x_iou >= 0.1:
+                if by2 <= ay1:  # b is above a
+                    top_candidates.append((j, ay1 - by2))
+                elif by1 >= ay2:  # b is below a
+                    bottom_candidates.append((j, by1 - ay2))
+
+        # Sort by distance (ascending) and cap
+        left_candidates.sort(key=lambda x: x[1])
+        right_candidates.sort(key=lambda x: x[1])
+        top_candidates.sort(key=lambda x: x[1])
+        bottom_candidates.sort(key=lambda x: x[1])
+
+        a.left_elem_ids = [elements[k].element_id for k, _ in left_candidates[:5]]
+        a.right_elem_ids = [elements[k].element_id for k, _ in right_candidates[:5]]
+        a.top_elem_ids = [elements[k].element_id for k, _ in top_candidates[:3]]
+        a.bottom_elem_ids = [elements[k].element_id for k, _ in bottom_candidates[:3]]
+
+
 def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     """
     Call the local OmniParser V2 API and return HAJIMI-style UIElement list.
@@ -172,12 +252,12 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
 
         raw_id = item.get("id")
         if raw_id is not None:
-            element_id = f"~{raw_id}"
+            element_id = str(raw_id)             # strip ~ prefix — was: f"~{raw_id}"
         elif all_none:
-            element_id = f"~{seq}"
+            element_id = str(seq)                # strip ~ prefix — was: f"~{seq}"
             seq += 1
         else:
-            element_id = "~?"
+            element_id = "?"
 
         center = item.get("center") or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
         center_int = [int(center[0]), int(center[1])]
@@ -199,6 +279,9 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
                 center=center_int,
             )
         )
+
+    # ── Compute spatial relations (left/right/top/bottom neighbors) ──
+    _compute_spatial_relations(elements)
 
     # ── 提取 SoM 标注图 ──
     annotated_image = None
