@@ -86,7 +86,7 @@ def _compute_spatial_relations(elements: List[UIElement]) -> None:
     Mutates elements in-place, populating their *_elem_ids fields.
 
     Same row: y-axis IoU >= 0.3
-    Top/bottom: y-axis overlap >= 0.1 (more lenient — elements can span rows)
+    Top/bottom: x-axis overlap >= 0.1 (share horizontal space — elements in the same column)
     """
     n = len(elements)
     if n == 0:
