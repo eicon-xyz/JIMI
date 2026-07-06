@@ -4,17 +4,13 @@ HAJIMI 自动操作助手 — 执行引擎
 主循环：Plan → SafetyCheck → Execute → Verify → Next/Replan
 SSE 事件通过 thread-safe queue 推送给 /stream 端点。
 """
+
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import threading
 import time
-from typing import Optional
-
-from server.services.executor.clicker import execute_action, move_to
-from server.services.executor.safety import check_step
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +39,7 @@ def _is_cancelled(task_id: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════
 # 公开 API
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def register_task(task_id: str) -> queue.Queue:
     """注册新任务，返回其事件队列供 /stream 端点消费。"""
@@ -110,15 +107,16 @@ def run_plan_agent_loop(
         steps: List of step dicts [{step_index, instruction, ...}]
         cancel_event: Set by /cancel endpoint
     """
-    from server.services.executor.agent import ExecutionAgent
     from server.models.schemas import ExecutedStep
+    from server.services.executor.agent import ExecutionAgent
 
-    q = register_task(task_id)
+    register_task(task_id)
     agent = ExecutionAgent()
     previous_steps: list[dict] = []
     all_done = True
 
     from server.config import settings
+
     retry_limit = getattr(settings, "STEP_RETRY_LIMIT", 1)
 
     for step_dict in steps:
@@ -130,10 +128,14 @@ def run_plan_agent_loop(
         step_idx = step_dict["step_index"]
         instruction = step_dict["instruction"]
 
-        _push_event(task_id, "step_start", {
-            "step_index": step_idx,
-            "instruction": instruction,
-        })
+        _push_event(
+            task_id,
+            "step_start",
+            {
+                "step_index": step_idx,
+                "instruction": instruction,
+            },
+        )
 
         # Build ExecutedStep
         es = ExecutedStep(
@@ -149,6 +151,11 @@ def run_plan_agent_loop(
                 goal=goal,
                 previous_steps=previous_steps,
                 cancel_event=cancel_event,
+                on_screenshot=lambda b64: _push_event(
+                    task_id,
+                    "screenshot_updated",
+                    {"step_index": step_idx, "annotated_image": b64},
+                ),
             )
         except Exception as e:
             logger.exception(f"Step {step_idx} execution crashed")
@@ -160,16 +167,22 @@ def run_plan_agent_loop(
             )
 
         if result.status == "done":
-            _push_event(task_id, "step_done", {
-                "step_index": step_idx,
-                "action_summary": result.action_summary or "",
-            })
-            previous_steps.append({
-                "index": step_idx,
-                "instruction": instruction,
-                "status": "done",
-                "action_summary": result.action_summary or "completed",
-            })
+            _push_event(
+                task_id,
+                "step_done",
+                {
+                    "step_index": step_idx,
+                    "action_summary": result.action_summary or "",
+                },
+            )
+            previous_steps.append(
+                {
+                    "index": step_idx,
+                    "instruction": instruction,
+                    "status": "done",
+                    "action_summary": result.action_summary or "completed",
+                }
+            )
         else:
             # Retry loop (STEP_RETRY_LIMIT times)
             retry_success = False
@@ -178,11 +191,17 @@ def run_plan_agent_loop(
                     _push_event(task_id, "task_cancelled", {})
                     all_done = False  # signal task was cancelled
                     return  # exit the thread, task cancelled
-                logger.warning(f"Step {step_idx} failed, retry {retry_attempt+1}/{retry_limit}...")
-                _push_event(task_id, "log", {
-                    "level": "warn",
-                    "message": f"步骤 {step_idx} 失败，重试 {retry_attempt+1}/{retry_limit}...",
-                })
+                logger.warning(
+                    f"Step {step_idx} failed, retry {retry_attempt+1}/{retry_limit}..."
+                )
+                _push_event(
+                    task_id,
+                    "log",
+                    {
+                        "level": "warn",
+                        "message": f"步骤 {step_idx} 失败，重试 {retry_attempt+1}/{retry_limit}...",
+                    },
+                )
                 try:
                     agent.clear_element_map()
                     retry_result = agent.execute_step(
@@ -192,45 +211,68 @@ def run_plan_agent_loop(
                         cancel_event=cancel_event,
                     )
                     if retry_result.status == "done":
-                        _push_event(task_id, "step_done", {
-                            "step_index": step_idx,
-                            "action_summary": retry_result.action_summary or "",
-                        })
-                        previous_steps.append({
-                            "index": step_idx,
-                            "instruction": instruction,
-                            "status": "done",
-                            "action_summary": retry_result.action_summary or "completed (retry)",
-                        })
+                        _push_event(
+                            task_id,
+                            "step_done",
+                            {
+                                "step_index": step_idx,
+                                "action_summary": retry_result.action_summary or "",
+                            },
+                        )
+                        previous_steps.append(
+                            {
+                                "index": step_idx,
+                                "instruction": instruction,
+                                "status": "done",
+                                "action_summary": retry_result.action_summary
+                                or "completed (retry)",
+                            }
+                        )
                         retry_success = True
                         break
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Step {step_idx} retry {retry_attempt+1} crashed")
 
             if not retry_success:
-                _push_event(task_id, "step_failed", {
-                    "step_index": step_idx,
-                    "reason": result.action_summary or "step failed after retries",
-                })
+                _push_event(
+                    task_id,
+                    "step_failed",
+                    {
+                        "step_index": step_idx,
+                        "reason": result.action_summary or "step failed after retries",
+                    },
+                )
                 all_done = False
                 break
 
     if all_done:
-        _push_event(task_id, "task_done", {
-            "task_id": task_id,
-            "goal": goal,
-            "total_steps": len(steps),
-            "completed_steps": len(previous_steps),
-        })
+        _push_event(
+            task_id,
+            "task_done",
+            {
+                "task_id": task_id,
+                "goal": goal,
+                "total_steps": len(steps),
+                "completed_steps": len(previous_steps),
+            },
+        )
     else:
-        _push_event(task_id, "task_failed", {
-            "reason": "step execution failed or cancelled",
-            "failed_step": len(previous_steps) + 1,
-        })
+        _push_event(
+            task_id,
+            "task_failed",
+            {
+                "reason": "step execution failed or cancelled",
+                "failed_step": len(previous_steps) + 1,
+            },
+        )
 
     # Delayed cleanup
     def _cleanup():
         time.sleep(3)
+        try:
+            agent.close_browser()
+        except Exception:
+            pass
         unregister_task(task_id)
 
     threading.Thread(target=_cleanup, daemon=True).start()
