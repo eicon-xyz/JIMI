@@ -495,13 +495,21 @@ class ExecutionAgent:
                     "role": "user",
                     "content": "继续。你还可以调用工具。每次只调用一个工具。"
                 })
-                # Throttle: ensure at least 1.5s between LLM+tool rounds to avoid
-                # hammering OmniParser with back-to-back get_screen_info calls
-                time.sleep(1.5)
+                time.sleep(1.5)  # throttle OmniParser load
 
             # Call LLM with tool definitions
             try:
                 raw, assistant_msg = self._call_llm_with_tools(messages)
+                # DEBUG: if raw is empty but assistant has tool_calls, something is wrong
+                if not raw and assistant_msg and assistant_msg.get("tool_calls"):
+                    logger.error(f"BUG: raw is empty but assistant_msg has tool_calls! msg={assistant_msg}")
+                    tc = assistant_msg["tool_calls"][0]
+                    func = tc["function"]
+                    raw = json.dumps({
+                        "__tool_call__": True,
+                        "name": func["name"],
+                        "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
+                    })
             except Exception as e:
                 logger.error(f"LLM call failed at round {round_num}: {e}")
                 step.status = "failed"
@@ -511,6 +519,15 @@ class ExecutionAgent:
             # Parse tool call from LLM response
             tool_name, tool_args = self._parse_tool_call(raw)
             if tool_name is None:
+                # In auto mode, LLM may respond with text instead of a tool call.
+                # Reject text-only responses that don't advance the task.
+                if raw and raw.strip():
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({
+                        "role": "user",
+                        "content": "请直接使用工具来执行操作或标记完成（如 mark_step_done），不要只用文字描述。调用一个工具。",
+                    })
+                    continue
                 consecutive_empty += 1
                 logger.warning(f"LLM returned non-tool response ({consecutive_empty}/3): {raw[:200]}")
                 if consecutive_empty >= 3:
@@ -581,7 +598,7 @@ class ExecutionAgent:
             "max_tokens": 512,
             "temperature": 0.2,
             "tools": self.tools,
-            "tool_choice": "required",
+            "tool_choice": "auto",
         }
         import httpx
         url = f"{base}/chat/completions"
@@ -601,9 +618,21 @@ class ExecutionAgent:
                     "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
                 }), msg  # return the original assistant message for conversation threading
             content = msg.get("content", "") or ""
-            # V4 Flash may return content with the tool call info even when finish_reason=tool_calls
-            # is not set. Try to parse it as a fallback tool call.
-            if content and not msg.get("tool_calls"):
+            # V4 Flash may return content alongside tool_calls (finish_reason=tool_calls
+            # but content also present). Parse content as fallback tool call.
+            if content:
+                # Try to extract function-call-like text from content
+                try:
+                    parsed = extract_json_object(content)
+                    if "name" in parsed and "arguments" in parsed:
+                        return json.dumps({
+                            "__tool_call__": True,
+                            "name": parsed["name"],
+                            "arguments": parsed["arguments"],
+                        }), None
+                except Exception:
+                    pass
+                # Content present but not parseable as tool — return as raw for caller to handle
                 return content, None
             return "", None
 
