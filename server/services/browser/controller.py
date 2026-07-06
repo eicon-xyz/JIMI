@@ -379,7 +379,7 @@ class BrowserController:
         }
 
     async def screenshot(self) -> dict:
-        """Take a full-page screenshot, return as base64 JPEG.
+        """Take a viewport screenshot, return as base64 JPEG.
 
         LLM can use this for visual verification — e.g., "does the page
         show search results?".  Returns a data-URI string suitable for
@@ -395,6 +395,21 @@ class BrowserController:
             "success": True,
             "image_b64": f"data:image/jpeg;base64,{b64}",
             "action_summary": "browser screenshot taken",
+        }
+
+    async def press_key(self, keys: str) -> dict:
+        """Press a keyboard key or combo on the browser page.
+
+        Examples: "Enter", "Escape", "Tab", "Control+a", "PageDown".
+        Uses Playwright's keyboard.press() which handles modifiers.
+        """
+        self._ensure_started()
+        await self._page.keyboard.press(keys)
+        logger.info("Browser pressed key: '%s'", keys)
+        return {
+            "success": True,
+            "keys": keys,
+            "action_summary": f"pressed '{keys}' in browser",
         }
 
     # ── Helpers ───────────────────────────────────────────────────────────
