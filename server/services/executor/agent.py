@@ -4,7 +4,10 @@ Execution Agent — LLM-driven tool-calling loop for each step.
 The LLM observes the screen via get_screen_info, decides which tool to call,
 executes via element_id (never coordinates), verifies, and marks step done/failed.
 """
+
 from __future__ import annotations
+
+import asyncio
 import json
 import logging
 import threading
@@ -15,10 +18,14 @@ import pyautogui
 import pyperclip
 
 from server.config import settings
-from server.models.schemas import UIElement, ExecutedStep
-from server.services.omniparser_client import parse_screenshot_full, _filter_elements_for_llm
+from server.models.schemas import ExecutedStep, UIElement
+from server.services.browser.controller import BrowserController
 from server.services.executor.safety import check_step
 from server.services.llm.providers import extract_json_object
+from server.services.omniparser_client import (
+    _filter_elements_for_llm,
+    parse_screenshot_full,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +86,29 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 禁止假设屏幕上看不到的元素存在
 - 禁止在一次响应中调用多个工具（串行调用，每次只调一个）
 - 禁止跳过 get_screen_info 直接操作（除非只是按键等待）
-- 禁止在 get_screen_info 之后引用之前的 element_id"""
+- 禁止在 get_screen_info 之后引用之前的 element_id
+
+## 浏览器工具（browser_ 前缀）
+当需要操作网页时，优先使用 browser_ 前缀的工具。它们基于 DOM 操作，比视觉点击更精确：
+- browser_navigate(url): 导航到网页。首次使用浏览器时，会自动启动浏览器。
+- browser_snapshot(): 获取页面结构化元素列表（链接、按钮、输入框等），不是完整HTML。用于观察页面。
+- browser_click(selector): 点击元素。selector 用 snapshot 返回的 CSS 选择器，或 text=匹配文本。
+- browser_type(selector, text): 在输入框输入文本。
+- browser_scroll(direction, amount): 滚轮翻页。
+- browser_close(): 关闭浏览器窗口。
+
+### 浏览器工作流程
+1. 如果当前步骤涉及网页操作，先调用 browser_navigate 打开目标网址
+2. 然后调用 browser_snapshot 查看页面有哪些可交互元素
+3. 根据 snapshot 返回的 selector 信息，调用 browser_click / browser_type 执行操作
+4. 必要时再次 browser_snapshot 验证结果
+5. 步骤完成后，如果后续不再需要浏览器，调用 browser_close 释放资源"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Tool definitions (OpenAI function-calling format)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _build_tool_definitions() -> list[dict]:
     return [
@@ -96,19 +120,22 @@ def _build_tool_definitions() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "app_name": {"type": "string", "description": "要启动的应用名称，如'网易云音乐'、'Calculator'"}
+                        "app_name": {
+                            "type": "string",
+                            "description": "要启动的应用名称，如'网易云音乐'、'Calculator'",
+                        }
                     },
-                    "required": ["app_name"]
-                }
-            }
+                    "required": ["app_name"],
+                },
+            },
         },
         {
             "type": "function",
             "function": {
                 "name": "get_screen_info",
                 "description": "截取当前屏幕并通过OmniParser获取元素列表。返回元素的id、content和空间关系。每次调用会刷新element_map，旧的element_id全部失效。",
-                "parameters": {"type": "object", "properties": {}}
-            }
+                "parameters": {"type": "object", "properties": {}},
+            },
         },
         {
             "type": "function",
@@ -118,11 +145,14 @@ def _build_tool_definitions() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "element_id": {"type": "string", "description": "元素ID，来自get_screen_info返回列表中的id字段"}
+                        "element_id": {
+                            "type": "string",
+                            "description": "元素ID，来自get_screen_info返回列表中的id字段",
+                        }
                     },
-                    "required": ["element_id"]
-                }
-            }
+                    "required": ["element_id"],
+                },
+            },
         },
         {
             "type": "function",
@@ -134,9 +164,9 @@ def _build_tool_definitions() -> list[dict]:
                     "properties": {
                         "element_id": {"type": "string", "description": "元素ID"}
                     },
-                    "required": ["element_id"]
-                }
-            }
+                    "required": ["element_id"],
+                },
+            },
         },
         {
             "type": "function",
@@ -146,12 +176,15 @@ def _build_tool_definitions() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "element_id": {"type": "string", "description": "目标输入框的元素ID"},
-                        "text": {"type": "string", "description": "要输入的文本"}
+                        "element_id": {
+                            "type": "string",
+                            "description": "目标输入框的元素ID",
+                        },
+                        "text": {"type": "string", "description": "要输入的文本"},
                     },
-                    "required": ["element_id", "text"]
-                }
-            }
+                    "required": ["element_id", "text"],
+                },
+            },
         },
         {
             "type": "function",
@@ -161,11 +194,14 @@ def _build_tool_definitions() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "keys": {"type": "string", "description": "组合键字符串，如 'enter' 或 'ctrl+v'"}
+                        "keys": {
+                            "type": "string",
+                            "description": "组合键字符串，如 'enter' 或 'ctrl+v'",
+                        }
                     },
-                    "required": ["keys"]
-                }
-            }
+                    "required": ["keys"],
+                },
+            },
         },
         {
             "type": "function",
@@ -176,11 +212,11 @@ def _build_tool_definitions() -> list[dict]:
                     "type": "object",
                     "properties": {
                         "direction": {"type": "string", "enum": ["up", "down"]},
-                        "amount": {"type": "integer", "description": "滚动量，默认3"}
+                        "amount": {"type": "integer", "description": "滚动量，默认3"},
                     },
-                    "required": ["direction"]
-                }
-            }
+                    "required": ["direction"],
+                },
+            },
         },
         {
             "type": "function",
@@ -192,9 +228,9 @@ def _build_tool_definitions() -> list[dict]:
                     "properties": {
                         "seconds": {"type": "number", "description": "等待秒数"}
                     },
-                    "required": ["seconds"]
-                }
-            }
+                    "required": ["seconds"],
+                },
+            },
         },
         {
             "type": "function",
@@ -204,11 +240,14 @@ def _build_tool_definitions() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "reason": {"type": "string", "description": "完成原因，如'操作成功'或'precondition already satisfied'"}
+                        "reason": {
+                            "type": "string",
+                            "description": "完成原因，如'操作成功'或'precondition already satisfied'",
+                        }
                     },
-                    "required": ["reason"]
-                }
-            }
+                    "required": ["reason"],
+                },
+            },
         },
         {
             "type": "function",
@@ -220,9 +259,96 @@ def _build_tool_definitions() -> list[dict]:
                     "properties": {
                         "reason": {"type": "string", "description": "失败原因"}
                     },
-                    "required": ["reason"]
-                }
-            }
+                    "required": ["reason"],
+                },
+            },
+        },
+        # ── Browser tools ──
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_navigate",
+                "description": "浏览器导航到指定URL。打开网页后使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "要导航到的URL，如'https://baidu.com'",
+                        }
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_snapshot",
+                "description": "获取当前网页的精简DOM结构（仅交互元素：链接、按钮、输入框等），不返回完整HTML。用于观察页面状态。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_click",
+                "description": "在浏览器中点击指定元素。传入CSS选择器或文本匹配。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "selector": {
+                            "type": "string",
+                            "description": "CSS选择器，如'#submit'、'.btn'、'text=登录'",
+                        }
+                    },
+                    "required": ["selector"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_type",
+                "description": "在浏览器输入框中输入文本。先清空再输入。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "selector": {
+                            "type": "string",
+                            "description": "输入框的CSS选择器",
+                        },
+                        "text": {"type": "string", "description": "要输入的文本"},
+                    },
+                    "required": ["selector", "text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_scroll",
+                "description": "滚轮滚动页面。direction: 'up'或'down'。amount: 滚动像素量（默认300）。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "direction": {"type": "string", "enum": ["up", "down"]},
+                        "amount": {
+                            "type": "integer",
+                            "description": "滚动像素量，默认300",
+                        },
+                    },
+                    "required": ["direction"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_close",
+                "description": "关闭浏览器窗口。任务完成后调用以释放资源。",
+                "parameters": {"type": "object", "properties": {}},
+            },
         },
     ]
 
@@ -230,6 +356,7 @@ def _build_tool_definitions() -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Context builder
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _build_context_for_llm(
     goal: str,
@@ -247,7 +374,9 @@ def _build_context_for_llm(
                 f"→ {ps.get('action_summary', 'done')}"
             )
 
-    parts.append(f"## 当前步骤\nStep {current_step['index']}: {current_step['instruction']}")
+    parts.append(
+        f"## 当前步骤\nStep {current_step['index']}: {current_step['instruction']}"
+    )
     parts.append("\n请完成当前步骤。你可以调用工具。每次只调用一个工具。")
 
     return "\n".join(parts)
@@ -257,6 +386,7 @@ def _build_context_for_llm(
 # Execution Agent
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class ExecutionAgent:
     """LLM-driven execution loop for one step at a time."""
 
@@ -264,6 +394,38 @@ class ExecutionAgent:
         self.element_map: dict[str, UIElement] = {}
         self.screen_elements: list[dict] = []
         self.tools = _build_tool_definitions()
+        self._browser: Optional[BrowserController] = None
+
+    @property
+    def browser(self) -> BrowserController:
+        """Lazy-init BrowserController — created on first browser_xxx tool call."""
+        if self._browser is None:
+            self._browser = BrowserController()
+        return self._browser
+
+    def _run_async(self, coro):
+        """Run an async coroutine synchronously.
+
+        Since the Execution Agent runs in a background thread (not an async
+        event loop), we call asyncio.run() in that thread.  asyncio.run()
+        creates a fresh event loop per call — acceptable for the low-frequency
+        browser tool calls (1–5 per step).
+        """
+        return asyncio.run(coro)
+
+    def _ensure_browser_started(self) -> None:
+        """Lazy-start the browser on first use."""
+        if not self.browser.is_started:
+            self._run_async(self.browser.start(headless=False))
+
+    def close_browser(self) -> None:
+        """Close browser and clean up. Safe to call multiple times."""
+        if self._browser is not None and self._browser.is_started:
+            try:
+                self._run_async(self._browser.close())
+            except Exception as e:
+                logger.warning("Error closing browser during cleanup: %s", e)
+        self._browser = None
 
     def clear_element_map(self):
         self.element_map = {}
@@ -278,6 +440,7 @@ class ExecutionAgent:
         # Wake up potentially frozen RDP/remote GUI session before screenshot
         try:
             import pyautogui
+
             pyautogui.press("esc")
             time.sleep(0.2)
         except Exception:
@@ -285,20 +448,26 @@ class ExecutionAgent:
 
         try:
             from core.screen_capture import capture_to_base64
+
             image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
         except ImportError:
             # Fallback: use mss directly
+            import base64
+            from io import BytesIO
+
             import mss
             from PIL import Image
-            from io import BytesIO
-            import base64
+
             with mss.mss() as sct:
                 monitor = sct.monitors[1]
                 img = sct.grab(monitor)
                 pil = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
                 buf = BytesIO()
                 pil.save(buf, format="JPEG", quality=70)
-                image_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+                image_b64 = (
+                    "data:image/jpeg;base64,"
+                    + base64.b64encode(buf.getvalue()).decode()
+                )
 
         parse_result = parse_screenshot_full(image_b64, compute_spatial=False)
         self.element_map = {e.element_id: e for e in parse_result.elements}
@@ -306,12 +475,17 @@ class ExecutionAgent:
 
         result = {
             "success": True,
-            "elements": [{"id": el["id"], "content": el["content"]}
-                         for el in self.screen_elements
-                         if el.get("content") and el["content"].strip()][:30],
+            "elements": [
+                {"id": el["id"], "content": el["content"]}
+                for el in self.screen_elements
+                if el.get("content") and el["content"].strip()
+            ][:30],
             "element_count": len(self.screen_elements),
             "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
         }
+        # Include annotated screenshot so the frontend can display visual updates
+        if parse_result.annotated_image:
+            result["annotated_image"] = parse_result.annotated_image
         # Warn LLM after 3+ screen calls AND detect near-duplicate screens
         self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
         this_ids = frozenset(self.element_map.keys())
@@ -335,45 +509,32 @@ class ExecutionAgent:
     def _do_launch_app(self, app_name: str) -> dict:
         safety = check_step(f"launch app '{app_name}'")
         if safety.level == "red":
-            return {"success": False, "error": f"launch blocked (zone: red): {safety.reason}"}
+            return {
+                "success": False,
+                "error": f"launch blocked (zone: red): {safety.reason}",
+            }
         if safety.level == "yellow":
-            return {"success": False, "error": f"launch requires confirmation (zone: yellow): {safety.reason}"}
+            return {
+                "success": False,
+                "error": f"launch requires confirmation (zone: yellow): {safety.reason}",
+            }
 
         # App name normalization: translate common Chinese names to their
         # Windows Search executables for reliable Win+Search matching.
         # Without this, Windows Search may not find the app when pasting
         # Chinese text (e.g. "计算器" may not match "Calculator.lnk").
-        _APP_NAME_MAP = {
-            "计算器": "calc",
-            "记事本": "notepad",
-            "画图": "mspaint",
-            "截图": "Snipping Tool",
-            "任务管理器": "Task Manager",
-            "控制面板": "Control Panel",
-            "资源管理器": "explorer",
-            "文件资源管理器": "explorer",
-            "浏览器": "chrome",
-            "Chrome": "chrome",
-            "Edge": "microsoft-edge:",
-            "微信": "WeChat",
-            "QQ": "QQ",
-            "网易云音乐": "CloudMusic",
-            "Word": "winword",
-            "Excel": "excel",
-            "PowerPoint": "powerpnt",
-            "WPS": "WPS Office",
-            "VSCode": "code",
-        }
-        search_name = _APP_NAME_MAP.get(app_name, app_name)
+        # The canonical mapping table lives in server.services.launcher.APP_EXECUTABLE_MAP
+        from server.services.launcher import APP_EXECUTABLE_MAP, launch_app
+
+        search_name = APP_EXECUTABLE_MAP.get(app_name, app_name)
         if search_name != app_name:
             logger.info(f"App name mapped: '{app_name}' → '{search_name}'")
 
-        from server.services.launcher import launch_app
         result = launch_app(search_name)
         return {
             "success": result.get("success", False),
             "app_name": app_name,
-            "action_summary": f"launched app '{app_name}' via Win+Search",
+            "action_summary": f"launched app '{app_name}' (tier {result.get('tier', '?')})",
         }
 
     def _do_click(self, element_id: str, double: bool = False) -> dict:
@@ -382,7 +543,7 @@ class ExecutionAgent:
             return {
                 "success": False,
                 "error": f"element_id '{element_id}' not found in current screen. "
-                         f"Please call get_screen_info() again."
+                f"Please call get_screen_info() again.",
             }
 
         cx, cy = element.center
@@ -390,13 +551,13 @@ class ExecutionAgent:
         if safety.level == "red":
             return {
                 "success": False,
-                "error": f"action blocked (zone: red): {safety.reason}"
+                "error": f"action blocked (zone: red): {safety.reason}",
             }
         if safety.level == "yellow":
             return {
                 "success": False,
                 "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
-                         f"Choose a different target or try an alternative approach."
+                f"Choose a different target or try an alternative approach.",
             }
 
         pyautogui.moveTo(cx, cy, duration=0.2)
@@ -418,18 +579,21 @@ class ExecutionAgent:
             return {
                 "success": False,
                 "error": f"element_id '{element_id}' not found in current screen. "
-                         f"Please call get_screen_info() again."
+                f"Please call get_screen_info() again.",
             }
 
         cx, cy = element.center
         safety = check_step(f"type '{text}' into element")
         if safety.level == "red":
-            return {"success": False, "error": f"action blocked (zone: red): {safety.reason}"}
+            return {
+                "success": False,
+                "error": f"action blocked (zone: red): {safety.reason}",
+            }
         if safety.level == "yellow":
             return {
                 "success": False,
                 "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
-                         f"Choose a different target or try an alternative approach."
+                f"Choose a different target or try an alternative approach.",
             }
 
         old_clipboard = pyperclip.paste()
@@ -452,9 +616,15 @@ class ExecutionAgent:
     def _do_press_key(self, keys: str) -> dict:
         safety = check_step(f"press key '{keys}'")
         if safety.level == "red":
-            return {"success": False, "error": f"key blocked (zone: red): {safety.reason}"}
+            return {
+                "success": False,
+                "error": f"key blocked (zone: red): {safety.reason}",
+            }
         if safety.level == "yellow":
-            return {"success": False, "error": f"key requires confirmation (zone: yellow): {safety.reason}"}
+            return {
+                "success": False,
+                "error": f"key requires confirmation (zone: yellow): {safety.reason}",
+            }
         key_list = [k.strip() for k in keys.split("+")]
         if len(key_list) == 1:
             pyautogui.press(key_list[0])
@@ -465,8 +635,12 @@ class ExecutionAgent:
     def _do_scroll(self, direction: str, amount: int = 3) -> dict:
         amt = amount if direction == "up" else -amount
         pyautogui.scroll(amt)
-        return {"success": True, "direction": direction, "amount": amount,
-                "action_summary": f"scrolled {direction} x{amount}"}
+        return {
+            "success": True,
+            "direction": direction,
+            "amount": amount,
+            "action_summary": f"scrolled {direction} x{amount}",
+        }
 
     # ── Tool dispatcher ──
 
@@ -495,11 +669,50 @@ class ExecutionAgent:
         elif tool_name == "wait":
             secs = float(tool_args.get("seconds", 1.0))
             time.sleep(secs)
-            return {"success": True, "waited": secs, "action_summary": f"waited {secs}s"}
+            return {
+                "success": True,
+                "waited": secs,
+                "action_summary": f"waited {secs}s",
+            }
         elif tool_name == "mark_step_done":
-            return {"__step_complete__": True, "success": True, "reason": tool_args.get("reason", "")}
+            return {
+                "__step_complete__": True,
+                "success": True,
+                "reason": tool_args.get("reason", ""),
+            }
         elif tool_name == "mark_step_failed":
             return {"__step_failed__": True, "reason": tool_args.get("reason", "")}
+        # ── Browser tools ──
+        elif tool_name == "browser_navigate":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.navigate(tool_args.get("url", "")))
+        elif tool_name == "browser_snapshot":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.get_snapshot())
+        elif tool_name == "browser_click":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.click(tool_args.get("selector", ""))
+            )
+        elif tool_name == "browser_type":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.type(
+                    tool_args.get("selector", ""),
+                    tool_args.get("text", ""),
+                )
+            )
+        elif tool_name == "browser_scroll":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.scroll(
+                    tool_args.get("direction", "down"),
+                    tool_args.get("amount", 300),
+                )
+            )
+        elif tool_name == "browser_close":
+            self._run_async(self.browser.close())
+            return {"success": True, "action_summary": "browser closed"}
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 
@@ -511,6 +724,7 @@ class ExecutionAgent:
         goal: str,
         previous_steps: list[dict],
         cancel_event: Optional[threading.Event] = None,
+        on_screenshot: Optional[callable] = None,
     ) -> ExecutedStep:
         """Run the agent loop for a single step.
 
@@ -519,6 +733,8 @@ class ExecutionAgent:
             goal: Overall task goal from Planning Agent
             previous_steps: List of completed step dicts with action_summary
             cancel_event: Threading event set by user cancellation
+            on_screenshot: Optional callback(b64_str) when a new screenshot is taken.
+                Called from the agent loop thread after each get_screen_info.
 
         Returns:
             ExecutedStep with action, target_element_id, params, action_summary, status filled
@@ -531,14 +747,18 @@ class ExecutionAgent:
 
         action_summary = None
         consecutive_empty = 0
-        screen_call_count = 0
 
         # Build the conversation once: system prompt + task context.
         # Tool call history accumulates across rounds below.
         messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
         # Add a hint: if the step is just about launching an app, the LLM should
         # call launch_app then mark_step_done directly, not verify via get_screen_info
-        if "打开" in step.instruction or "启动" in step.instruction or "launch" in step.instruction.lower() or "open" in step.instruction.lower():
+        if (
+            "打开" in step.instruction
+            or "启动" in step.instruction
+            or "launch" in step.instruction.lower()
+            or "open" in step.instruction.lower()
+        ):
             context += "\n\n注意：如果本步骤只是打开/启动一个应用，用 launch_app 打开后请立即调用 mark_step_done，无需 get_screen_info 验证。"
         messages.append({"role": "user", "content": context})
 
@@ -550,10 +770,12 @@ class ExecutionAgent:
 
             # On subsequent rounds, nudge the LLM to continue
             if round_num > 0:
-                messages.append({
-                    "role": "user",
-                    "content": "继续。你还可以调用工具。每次只调用一个工具。"
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "继续。你还可以调用工具。每次只调用一个工具。",
+                    }
+                )
                 time.sleep(1.5)  # throttle OmniParser load
 
             # Call LLM with tool definitions
@@ -561,14 +783,22 @@ class ExecutionAgent:
                 raw, assistant_msg = self._call_llm_with_tools(messages)
                 # DEBUG: if raw is empty but assistant has tool_calls, something is wrong
                 if not raw and assistant_msg and assistant_msg.get("tool_calls"):
-                    logger.error(f"BUG: raw is empty but assistant_msg has tool_calls! msg={assistant_msg}")
+                    logger.error(
+                        f"BUG: raw is empty but assistant_msg has tool_calls! msg={assistant_msg}"
+                    )
                     tc = assistant_msg["tool_calls"][0]
                     func = tc["function"]
-                    raw = json.dumps({
-                        "__tool_call__": True,
-                        "name": func["name"],
-                        "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
-                    })
+                    raw = json.dumps(
+                        {
+                            "__tool_call__": True,
+                            "name": func["name"],
+                            "arguments": (
+                                json.loads(func["arguments"])
+                                if isinstance(func["arguments"], str)
+                                else func["arguments"]
+                            ),
+                        }
+                    )
             except Exception as e:
                 logger.error(f"LLM call failed at round {round_num}: {e}")
                 step.status = "failed"
@@ -581,37 +811,60 @@ class ExecutionAgent:
                 # In auto mode, LLM may respond with text instead of a tool call.
                 # Reject text-only responses that don't advance the task.
                 if raw and raw.strip():
-                    logger.warning(f"LLM returned text-only response (no tool call): {raw[:300]}")
+                    logger.warning(
+                        f"LLM returned text-only response (no tool call): {raw[:300]}"
+                    )
                     messages.append({"role": "assistant", "content": raw})
-                    messages.append({
-                        "role": "user",
-                        "content": "请直接使用工具来执行操作或标记完成（如 mark_step_done），不要只用文字描述。调用一个工具。",
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "请直接使用工具来执行操作或标记完成（如 mark_step_done），不要只用文字描述。调用一个工具。",
+                        }
+                    )
                     continue
                 consecutive_empty += 1
-                logger.warning(f"LLM returned non-tool response ({consecutive_empty}/3): {raw[:200]}")
+                logger.warning(
+                    f"LLM returned non-tool response ({consecutive_empty}/3): {raw[:200]}"
+                )
                 if consecutive_empty >= 3:
                     step.status = "failed"
-                    step.action_summary = "LLM returned empty response 3 times consecutively"
+                    step.action_summary = (
+                        "LLM returned empty response 3 times consecutively"
+                    )
                     return step
                 # Feed the response back as context
                 messages.append({"role": "assistant", "content": raw})
-                messages.append({
-                    "role": "user",
-                    "content": "请调用一个工具。每次只调用一个工具。可用工具: get_screen_info, click, type_text, press_key, mark_step_done, mark_step_failed 等。"
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "请调用一个工具。每次只调用一个工具。可用工具: get_screen_info, click, type_text, press_key, mark_step_done, mark_step_failed 等。",
+                    }
+                )
                 continue
             else:
                 consecutive_empty = 0
 
             # Dispatch tool
             result = self.dispatch_tool(tool_name, tool_args)
-            logger.info(f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}")
+            logger.info(
+                f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}"
+            )
+
+            # If the tool took a screenshot, push it to the frontend
+            if tool_name == "get_screen_info" and on_screenshot:
+                annotated = result.get("annotated_image")
+                if annotated:
+                    try:
+                        on_screenshot(annotated)
+                    except Exception:
+                        pass
 
             # Check for step completion signals
             if result.get("__step_complete__"):
                 step.status = "done"
-                step.action_summary = action_summary or result.get("reason", "step completed")
+                step.action_summary = action_summary or result.get(
+                    "reason", "step completed"
+                )
                 return step
             if result.get("__step_failed__"):
                 step.status = "failed"
@@ -632,14 +885,18 @@ class ExecutionAgent:
             else:
                 tool_call_id = f"call_{round_num}"
                 messages.append({"role": "assistant", "content": raw})
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": json.dumps(result, ensure_ascii=False),
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": json.dumps(result, ensure_ascii=False),
+                }
+            )
 
         # Exhausted all rounds
-        logger.warning(f"Step {step.step_index} exhausted {MAX_TOOL_CALL_ROUNDS} rounds")
+        logger.warning(
+            f"Step {step.step_index} exhausted {MAX_TOOL_CALL_ROUNDS} rounds"
+        )
         step.status = "failed"
         step.action_summary = "exceeded max tool calls"
         return step
@@ -661,6 +918,7 @@ class ExecutionAgent:
             "tool_choice": "auto",
         }
         import httpx
+
         url = f"{base}/chat/completions"
         with httpx.Client(timeout=120) as client:
             response = client.post(url, headers=headers, json=body)
@@ -672,11 +930,20 @@ class ExecutionAgent:
             if msg.get("tool_calls"):
                 tc = msg["tool_calls"][0]
                 func = tc["function"]
-                return json.dumps({
-                    "__tool_call__": True,
-                    "name": func["name"],
-                    "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
-                }), msg  # return the original assistant message for conversation threading
+                return (
+                    json.dumps(
+                        {
+                            "__tool_call__": True,
+                            "name": func["name"],
+                            "arguments": (
+                                json.loads(func["arguments"])
+                                if isinstance(func["arguments"], str)
+                                else func["arguments"]
+                            ),
+                        }
+                    ),
+                    msg,
+                )  # return the original assistant message for conversation threading
             content = msg.get("content", "") or ""
             # V4 Flash may return content alongside tool_calls (finish_reason=tool_calls
             # but content also present). Parse content as fallback tool call.
@@ -685,22 +952,28 @@ class ExecutionAgent:
                 try:
                     parsed = extract_json_object(content)
                     if "name" in parsed and "arguments" in parsed:
-                        synthetic_id = f"call_from_content"
-                        return json.dumps({
-                            "__tool_call__": True,
-                            "name": parsed["name"],
-                            "arguments": parsed["arguments"],
-                        }), {  # synthetic assistant_msg with valid tool_calls
+                        synthetic_id = "call_from_content"
+                        return json.dumps(
+                            {
+                                "__tool_call__": True,
+                                "name": parsed["name"],
+                                "arguments": parsed["arguments"],
+                            }
+                        ), {  # synthetic assistant_msg with valid tool_calls
                             "role": "assistant",
                             "content": content,
-                            "tool_calls": [{
-                                "id": synthetic_id,
-                                "type": "function",
-                                "function": {
-                                    "name": parsed["name"],
-                                    "arguments": json.dumps(parsed["arguments"], ensure_ascii=False),
+                            "tool_calls": [
+                                {
+                                    "id": synthetic_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": parsed["name"],
+                                        "arguments": json.dumps(
+                                            parsed["arguments"], ensure_ascii=False
+                                        ),
+                                    },
                                 }
-                            }]
+                            ],
                         }
                 except Exception:
                     pass
@@ -730,4 +1003,5 @@ class ExecutionAgent:
     @staticmethod
     def _get_provider_config() -> dict:
         from server.services.llm.providers import _get_provider_config
+
         return _get_provider_config()
