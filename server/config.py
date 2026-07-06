@@ -46,8 +46,8 @@ class Config:
 
     # 通用 LLM（默认/回退）
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.siliconflow.cn/v1")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "Qwen/Qwen3.6-35B-A3B")
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "qwen-vl-max")
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "120"))
 
     # 各供应商独立配置
@@ -72,7 +72,7 @@ class Config:
 
     QWEN_API_KEY: str = os.getenv("QWEN_API_KEY", "")
     QWEN_BASE_URL: str = os.getenv("QWEN_BASE_URL", "https://api.siliconflow.cn/v1")
-    QWEN_MODEL: str = os.getenv("QWEN_MODEL", "Qwen/Qwen3.6-35B-A3B")
+    QWEN_MODEL: str = os.getenv("QWEN_MODEL", "qwen-vl-max")
 
     GLM_API_KEY: str = os.getenv("GLM_API_KEY", "")
     GLM_BASE_URL: str = os.getenv("GLM_BASE_URL", "")

@@ -338,8 +338,38 @@ class ExecutionAgent:
             return {"success": False, "error": f"launch blocked (zone: red): {safety.reason}"}
         if safety.level == "yellow":
             return {"success": False, "error": f"launch requires confirmation (zone: yellow): {safety.reason}"}
+
+        # App name normalization: translate common Chinese names to their
+        # Windows Search executables for reliable Win+Search matching.
+        # Without this, Windows Search may not find the app when pasting
+        # Chinese text (e.g. "计算器" may not match "Calculator.lnk").
+        _APP_NAME_MAP = {
+            "计算器": "calc",
+            "记事本": "notepad",
+            "画图": "mspaint",
+            "截图": "Snipping Tool",
+            "任务管理器": "Task Manager",
+            "控制面板": "Control Panel",
+            "资源管理器": "explorer",
+            "文件资源管理器": "explorer",
+            "浏览器": "chrome",
+            "Chrome": "chrome",
+            "Edge": "microsoft-edge:",
+            "微信": "WeChat",
+            "QQ": "QQ",
+            "网易云音乐": "CloudMusic",
+            "Word": "winword",
+            "Excel": "excel",
+            "PowerPoint": "powerpnt",
+            "WPS": "WPS Office",
+            "VSCode": "code",
+        }
+        search_name = _APP_NAME_MAP.get(app_name, app_name)
+        if search_name != app_name:
+            logger.info(f"App name mapped: '{app_name}' → '{search_name}'")
+
         from server.services.launcher import launch_app
-        result = launch_app(app_name)
+        result = launch_app(search_name)
         return {
             "success": result.get("success", False),
             "app_name": app_name,

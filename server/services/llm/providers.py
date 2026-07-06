@@ -263,8 +263,9 @@ def _get_provider_config(provider: str | None = None) -> dict:
         "qwen": {
             "provider": "qwen",
             "api_key": getattr(settings, 'QWEN_API_KEY', '') or settings.LLM_API_KEY,
-            "base_url": getattr(settings, 'QWEN_BASE_URL', '') or settings.LLM_BASE_URL or "https://api.siliconflow.cn/v1",
-            "model": getattr(settings, 'QWEN_MODEL', '') or settings.LLM_MODEL or "Qwen/Qwen2.5-VL-32B-Instruct",
+            "base_url": getattr(settings, 'QWEN_BASE_URL', '') or settings.LLM_BASE_URL or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": getattr(settings, 'QWEN_MODEL', '') or settings.LLM_MODEL or "qwen-vl-max",
+            "assistant_content_style": "empty_string",  # Qwen-VL-Max requires content="" not content=None
         },
         "glm": {
             "provider": "glm",
