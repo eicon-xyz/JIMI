@@ -481,6 +481,10 @@ class ExecutionAgent:
         # Build the conversation once: system prompt + task context.
         # Tool call history accumulates across rounds below.
         messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
+        # Add a hint: if the step is just about launching an app, the LLM should
+        # call launch_app then mark_step_done directly, not verify via get_screen_info
+        if "打开" in step.instruction or "启动" in step.instruction or "launch" in step.instruction.lower() or "open" in step.instruction.lower():
+            context += "\n\n注意：如果本步骤只是打开/启动一个应用，用 launch_app 打开后请立即调用 mark_step_done，无需 get_screen_info 验证。"
         messages.append({"role": "user", "content": context})
 
         for round_num in range(MAX_TOOL_CALL_ROUNDS):
