@@ -269,12 +269,21 @@ class ExecutionAgent:
         self.element_map = {}
         self.screen_elements = []
         self._get_screen_call_count = 0
+        self._last_screen_ids = None
 
     # ── Tool implementations ──
 
     def _do_get_screen_info(self) -> dict:
-        """Screenshot → OmniParser → rebuild element_map."""
-        # Alt+Tab to focus the most recent app window.
+        """Screenshot → OmniParser → rebuild element_map.
+
+        Returns only slim elements (max 30, {id, content}) in the tool-result
+        payload so LLM context stays small. The full element_map is still
+        available internally for click/type_text resolution.
+
+        Screen-call count guard: if this is the 2nd+ call and the last call's
+        elements look the same (>80% id overlap), add a strong warning to the
+        result — the LLM should stop re-scanning and make a decision.
+        """        # Alt+Tab to focus the most recent app window.
         # Use pydirectinput for physical keyboard simulation (pyautogui
         # hotkeys may not reach the desktop in SSH/tmux sessions).
         try:
@@ -319,8 +328,18 @@ class ExecutionAgent:
             "element_count": len(self.screen_elements),
             "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
         }
-        # Warn LLM after 3+ screen calls to prevent endless re-scanning
+        # Warn LLM after 3+ screen calls AND detect near-duplicate screens
         self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
+        this_ids = frozenset(self.element_map.keys())
+        prev_ids = getattr(self, "_last_screen_ids", None)
+        if prev_ids is not None and this_ids:
+            overlap = len(this_ids & prev_ids) / max(len(this_ids | prev_ids), 1)
+            if overlap > 0.8:
+                result["warning"] = (
+                    f"⚠️ 屏幕与上一次截图几乎相同 ({overlap:.0%} 元素重叠)。"
+                    "连续截屏不会改变画面。请立即基于当前元素列表点击目标或 mark_step_done/mark_step_failed。"
+                )
+        self._last_screen_ids = this_ids
         if self._get_screen_call_count >= 3:
             result["warning"] = (
                 f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
