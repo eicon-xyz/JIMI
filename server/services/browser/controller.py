@@ -105,18 +105,95 @@ class BrowserController:
     # ── Page actions ─────────────────────────────────────────────────────
 
     async def navigate(self, url: str) -> dict:
-        """Navigate to a URL. Returns page title and final URL."""
+        """Navigate to a URL with tiered wait_until fallback.
+
+        Strategy:
+          1. "commit"     — fastest: waits only for network response (≈0.3s)
+          2. "load"       — waits for page load event (≈2s)
+          3. "domcontentloaded" — most patient: waits for DOM complete + scripts (≈5s)
+
+        Each tier has an independent timeout.  If one tier times out,
+        we fall back to the next one rather than failing immediately.
+        The final tier distributes its timeout across sub-phases
+        (domcontentloaded → networkidle) for stubborn SPAs.
+        """
         self._ensure_started()
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
         logger.info("Browser navigating to: %s", url)
-        response = await self._page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+
+        tiers = [
+            ("commit", 8_000),
+            ("load", 15_000),
+            ("domcontentloaded", 20_000),
+        ]
+
+        response = None
+        last_error = None
+
+        for i, (wait_until, timeout_ms) in enumerate(tiers):
+            try:
+                logger.info(
+                    "Navigation tier %d/%d: wait_until=%s timeout=%dms",
+                    i + 1, len(tiers), wait_until, timeout_ms,
+                )
+                response = await self._page.goto(
+                    url, wait_until=wait_until, timeout=timeout_ms
+                )
+                break  # success — don't try slower tiers
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Navigation tier %d ('%s') failed: %s — falling back",
+                    i + 1, wait_until, str(e)[:120],
+                )
+                continue  # try next tier
+
+        # All tiers exhausted — last resort: networkidle with generous timeout
+        if response is None:
+            logger.warning(
+                "All navigation tiers failed (%s); trying networkidle as last resort",
+                last_error,
+            )
+            try:
+                response = await self._page.goto(
+                    url, wait_until="networkidle", timeout=45_000
+                )
+            except Exception as e:
+                last_error = e
+                logger.error("Last-resort networkidle navigation also failed: %s", e)
+
+        # If still nothing, check if the page partially loaded anyway
+        if response is None:
+            current_url = self._page.url
+            if current_url != "about:blank" and url.rstrip("/") in current_url:
+                logger.info(
+                    "Navigation appears to have partially succeeded: %s", current_url
+                )
+                title = await self._page.title()
+                return {
+                    "success": True,
+                    "url": current_url,
+                    "title": title,
+                    "status": None,
+                    "wait_until": "partial",
+                    "warning": f"Page may not be fully loaded: {last_error}",
+                    "action_summary": f"partially navigated to '{title}' ({current_url})",
+                }
+            return {
+                "success": False,
+                "url": url,
+                "error": f"Navigation failed after all tiers: {last_error}",
+                "action_summary": f"navigation to {url} failed",
+            }
+
         title = await self._page.title()
         return {
             "success": True,
             "url": self._page.url,
             "title": title,
             "status": response.status if response else None,
+            "wait_until": wait_until,
             "action_summary": f"navigated to '{title}' ({url})",
         }
 

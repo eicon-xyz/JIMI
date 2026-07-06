@@ -403,15 +403,71 @@ class ExecutionAgent:
             self._browser = BrowserController()
         return self._browser
 
-    def _run_async(self, coro):
-        """Run an async coroutine synchronously.
+    def _get_or_create_browser_loop(self) -> asyncio.AbstractEventLoop:
+        """Lazy-init a dedicated event loop in a daemon thread.
 
-        Since the Execution Agent runs in a background thread (not an async
-        event loop), we call asyncio.run() in that thread.  asyncio.run()
-        creates a fresh event loop per call — acceptable for the low-frequency
-        browser tool calls (1–5 per step).
+        Playwright objects (browser, page, CDP session) are bound to the
+        event loop that created them.  Using asyncio.run() per-call would
+        create+destroy a loop each time, causing "Event loop is closed"
+        and "object belongs to different event loop" errors.
+
+        Instead we create ONE persistent loop running in its own daemon
+        thread, and every browser coroutine is submitted to it via
+        run_coroutine_threadsafe.  The loop lives as long as the
+        ExecutionAgent instance.
         """
-        return asyncio.run(coro)
+        if getattr(self, "_browser_loop", None) is None:
+            self._browser_loop = asyncio.new_event_loop()
+            self._browser_loop_thread = threading.Thread(
+                target=self._browser_loop.run_forever, daemon=True
+            )
+            self._browser_loop_thread.start()
+            logger.info("Browser event loop thread started")
+        return self._browser_loop
+
+    def _run_async(self, coro):
+        """Run an async coroutine synchronously on the persistent browser loop.
+
+        Thread-safe: can be called from any thread.  Submits the coroutine
+        to the dedicated browser event loop and blocks until completion.
+
+        Defensive: if the loop has died for any reason, tears it down and
+        creates a fresh one, then retries once.
+        """
+        loop = self._get_or_create_browser_loop()
+        if loop.is_closed():
+            logger.warning("Browser event loop was closed; recreating")
+            self._browser_loop = None
+            loop = self._get_or_create_browser_loop()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result(timeout=120)
+        except (RuntimeError, BrokenPipeError, ConnectionError) as e:
+            # Loop may have crashed — recreate and retry once
+            logger.warning("Browser event loop error (%s); recreating", e)
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                pass
+            self._browser_loop = None
+            self._browser = None  # force re-create so start() runs in new loop
+            loop = self._get_or_create_browser_loop()
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result(timeout=120)
+
+    def _stop_browser_loop(self) -> None:
+        """Stop the dedicated browser event loop thread. Idempotent."""
+        loop = getattr(self, "_browser_loop", None)
+        if loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                pass
+        if getattr(self, "_browser_loop_thread", None) is not None:
+            self._browser_loop_thread.join(timeout=5)
+        self._browser_loop = None
+        self._browser_loop_thread = None
 
     def _ensure_browser_started(self) -> None:
         """Lazy-start the browser on first use."""
@@ -426,6 +482,7 @@ class ExecutionAgent:
             except Exception as e:
                 logger.warning("Error closing browser during cleanup: %s", e)
         self._browser = None
+        self._stop_browser_loop()
 
     def clear_element_map(self):
         self.element_map = {}
