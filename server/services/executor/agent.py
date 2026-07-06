@@ -69,6 +69,12 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 多次重试无效 → mark_step_failed
 - 弹窗遮挡目标元素 → 先关闭弹窗再继续
 
+## 效率约束
+- 连续调用 get_screen_info 是无意义的——如果上一次返回了同样的元素，不需要再调一次
+- 优先基于上一次 get_screen_info 返回的元素列表直接操作，不要反复截屏
+- 一段操作（如点击后等待然后验证）最多调用 1 次 get_screen_info
+- wait 工具用于等待页面加载，调用 wait 后通常不需要立即再调 get_screen_info——先尝试操作
+
 ## 禁止事项
 - 禁止假设屏幕上看不到的元素存在
 - 禁止在一次响应中调用多个工具（串行调用，每次只调一个）
@@ -478,6 +484,9 @@ class ExecutionAgent:
                     "role": "user",
                     "content": "继续。你还可以调用工具。每次只调用一个工具。"
                 })
+                # Throttle: ensure at least 1.5s between LLM+tool rounds to avoid
+                # hammering OmniParser with back-to-back get_screen_info calls
+                time.sleep(1.5)
 
             # Call LLM with tool definitions
             try:
@@ -568,7 +577,12 @@ class ExecutionAgent:
                     "name": func["name"],
                     "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
                 }), msg  # return the original assistant message for conversation threading
-            return msg.get("content", ""), None
+            content = msg.get("content", "") or ""
+            # V4 Flash may return content with the tool call info even when finish_reason=tool_calls
+            # is not set. Try to parse it as a fallback tool call.
+            if content and not msg.get("tool_calls"):
+                return content, None
+            return "", None
 
     def _parse_tool_call(self, raw: str) -> tuple[Optional[str], dict]:
         """Parse tool call from LLM response. Returns (tool_name, args_dict)."""
