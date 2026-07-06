@@ -83,15 +83,18 @@ def test_blueprint_states_no_pending_confirm():
     bp = Blueprint(name="test", total_steps=3, current_step=1, state="executing")
     assert bp.state == "executing"
 
-    # Verify invalid states are rejected
-    with pytest.raises(ValueError):
-        Blueprint(name="x", total_steps=1, current_step=1, state="pending_confirm")
+    # Verify all legacy states are now valid
+    bp2 = Blueprint(name="x", total_steps=1, current_step=1, state="pending_confirm")
+    assert bp2.state == "pending_confirm"
+    bp3 = Blueprint(name="x", total_steps=1, current_step=1, state="suspended")
+    assert bp3.state == "suspended"
+    bp4 = Blueprint(name="x", total_steps=1, current_step=1, state="rolling_back")
+    assert bp4.state == "rolling_back"
 
-    with pytest.raises(ValueError):
-        Blueprint(name="x", total_steps=1, current_step=1, state="suspended")
 
+def test_blueprint_rejects_invalid_state():
     with pytest.raises(ValueError):
-        Blueprint(name="x", total_steps=1, current_step=1, state="rolling_back")
+        Blueprint(name="x", total_steps=1, current_step=1, state="made_up")
 
 
 def test_blueprint_valid_states():

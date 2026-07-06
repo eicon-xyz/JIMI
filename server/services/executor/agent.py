@@ -296,6 +296,11 @@ class ExecutionAgent:
         }
 
     def _do_launch_app(self, app_name: str) -> dict:
+        safety = check_step(f"launch app '{app_name}'")
+        if safety.level == "red":
+            return {"success": False, "error": f"launch blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {"success": False, "error": f"launch requires confirmation (zone: yellow): {safety.reason}"}
         from server.services.launcher import launch_app
         result = launch_app(app_name)
         return {
@@ -378,6 +383,11 @@ class ExecutionAgent:
         }
 
     def _do_press_key(self, keys: str) -> dict:
+        safety = check_step(f"press key '{keys}'")
+        if safety.level == "red":
+            return {"success": False, "error": f"key blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {"success": False, "error": f"key requires confirmation (zone: yellow): {safety.reason}"}
         key_list = [k.strip() for k in keys.split("+")]
         if len(key_list) == 1:
             pyautogui.press(key_list[0])

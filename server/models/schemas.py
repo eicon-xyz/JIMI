@@ -108,7 +108,8 @@ class Blueprint(BaseModel):
     current_step: int = Field(..., ge=1)
     state: str = Field(
         ...,
-        pattern="^(generated|executing|completed|terminated)$",
+        pattern="^(generated|pending_confirm|executing|suspended|"
+        "rolling_back|completed|terminated)$",
     )
 
 

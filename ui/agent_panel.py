@@ -354,7 +354,8 @@ class AgentPanel(QWidget):
         elif event_type == "step_start":
             si = data.get("step_index", 0)
             self.update_step(si, "active")
-            self.append_log(f">>> 步骤 {si}: {data.get('description', '')}", "info")
+            desc = data.get("description") or data.get("instruction", "")
+            self.append_log(f">>> 步骤 {si}: {desc}", "info")
         elif event_type == "step_executing":
             self.append_log(f"   └ {data.get('detail', '')}", "debug")
         elif event_type == "step_done":
