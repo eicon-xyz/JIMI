@@ -294,11 +294,20 @@ class ExecutionAgent:
         self.element_map = {e.element_id: e for e in parse_result.elements}
         self.screen_elements = _filter_elements_for_llm(parse_result.elements)
 
-        return {
+        result = {
             "success": True,
             "elements": self.screen_elements,
             "element_count": len(self.screen_elements),
         }
+        # Warn LLM after 3+ screen calls to prevent endless re-scanning
+        self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
+        if self._get_screen_call_count >= 3:
+            result["warning"] = (
+                f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
+                "屏幕元素不会因为反复截屏而改变。请立即根据已有元素决定下一步操作："
+                "点击目标元素、输入文本、或调用 mark_step_done/mark_step_failed。"
+            )
+        return result
 
     def _do_launch_app(self, app_name: str) -> dict:
         safety = check_step(f"launch app '{app_name}'")
@@ -466,6 +475,8 @@ class ExecutionAgent:
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
 
         action_summary = None
+        consecutive_empty = 0
+        screen_call_count = 0
 
         # Build the conversation once: system prompt + task context.
         # Tool call history accumulates across rounds below.
@@ -500,7 +511,12 @@ class ExecutionAgent:
             # Parse tool call from LLM response
             tool_name, tool_args = self._parse_tool_call(raw)
             if tool_name is None:
-                logger.warning(f"LLM returned non-tool response: {raw[:200]}")
+                consecutive_empty += 1
+                logger.warning(f"LLM returned non-tool response ({consecutive_empty}/3): {raw[:200]}")
+                if consecutive_empty >= 3:
+                    step.status = "failed"
+                    step.action_summary = "LLM returned empty response 3 times consecutively"
+                    return step
                 # Feed the response back as context
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({
@@ -508,6 +524,8 @@ class ExecutionAgent:
                     "content": "请调用一个工具。每次只调用一个工具。可用工具: get_screen_info, click, type_text, press_key, mark_step_done, mark_step_failed 等。"
                 })
                 continue
+            else:
+                consecutive_empty = 0
 
             # Dispatch tool
             result = self.dispatch_tool(tool_name, tool_args)
@@ -563,7 +581,7 @@ class ExecutionAgent:
             "max_tokens": 512,
             "temperature": 0.2,
             "tools": self.tools,
-            "tool_choice": "auto",
+            "tool_choice": "required",
         }
         import httpx
         url = f"{base}/chat/completions"
