@@ -324,3 +324,24 @@ class TestScreenshot:
         assert result["success"] is True
         assert result["image_b64"].startswith("data:image/jpeg;base64,")
         assert len(result["image_b64"]) > 30
+
+
+# ── Press Key ────────────────────────────────────────────────────────────────
+
+class TestPressKey:
+    @pytest.mark.asyncio
+    async def test_press_key_enter(self, controller, mock_page):
+        mock_page.keyboard = MagicMock()
+        mock_page.keyboard.press = AsyncMock()
+        result = await controller.press_key("Enter")
+        assert result["success"] is True
+        assert result["keys"] == "Enter"
+        mock_page.keyboard.press.assert_called_once_with("Enter")
+
+    @pytest.mark.asyncio
+    async def test_press_key_combo(self, controller, mock_page):
+        mock_page.keyboard = MagicMock()
+        mock_page.keyboard.press = AsyncMock()
+        result = await controller.press_key("Control+a")
+        assert result["success"] is True
+        mock_page.keyboard.press.assert_called_once_with("Control+a")
