@@ -4,6 +4,7 @@ Icon Stitch — Crop + Zoom + Stitch for precise icon identification
 Takes OmniParser bbox regions from the screenshot, enlarges each to 128x128,
 stitches them into one strip with element_id labels, sends to LLM in one call.
 """
+
 from __future__ import annotations
 
 import base64
@@ -12,7 +13,6 @@ from io import BytesIO
 from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
-import mss
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,9 @@ def identify_from_strips(
     Returns:
         element_id string like "~43", or None if not found
     """
-    import re, json
+    import json
+    import re
+
     from server.services.llm.providers import call_llm
 
     images = [{"base64Jpeg": s, "label": f"icons_{i}"} for i, s in enumerate(strips)]

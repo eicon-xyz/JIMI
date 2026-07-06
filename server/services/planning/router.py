@@ -4,6 +4,7 @@
 Runway: redline → intent → plan → screenshot (display-only).
 Execution happens later via ExecutionAgent in the engine.
 """
+
 import logging
 import uuid
 from typing import List, Optional
@@ -28,29 +29,104 @@ logger = logging.getLogger(__name__)
 
 _MOCK_FALLBACKS = {
     "wechat": [
-        {"action": "click", "description": "打开浏览器", "bbox_center": [150, 375], "params": None},
-        {"action": "type", "description": "输入微信官网地址", "bbox_center": [500, 70], "params": "weixin.qq.com"},
-        {"action": "click", "description": "点击下载按钮", "bbox_center": [480, 525], "params": None},
-        {"action": "click", "description": "运行安装程序", "bbox_center": [130, 630], "params": None},
+        {
+            "action": "click",
+            "description": "打开浏览器",
+            "bbox_center": [150, 375],
+            "params": None,
+        },
+        {
+            "action": "type",
+            "description": "输入微信官网地址",
+            "bbox_center": [500, 70],
+            "params": "weixin.qq.com",
+        },
+        {
+            "action": "click",
+            "description": "点击下载按钮",
+            "bbox_center": [480, 525],
+            "params": None,
+        },
+        {
+            "action": "click",
+            "description": "运行安装程序",
+            "bbox_center": [130, 630],
+            "params": None,
+        },
     ],
     "notepad": [
-        {"action": "press_key", "description": "按Win+R打开运行窗口", "bbox_center": None, "params": "win+r"},
-        {"action": "type", "description": "输入notepad", "bbox_center": None, "params": "notepad"},
-        {"action": "press_key", "description": "按回车启动记事本", "bbox_center": None, "params": "enter"},
+        {
+            "action": "press_key",
+            "description": "按Win+R打开运行窗口",
+            "bbox_center": None,
+            "params": "win+r",
+        },
+        {
+            "action": "type",
+            "description": "输入notepad",
+            "bbox_center": None,
+            "params": "notepad",
+        },
+        {
+            "action": "press_key",
+            "description": "按回车启动记事本",
+            "bbox_center": None,
+            "params": "enter",
+        },
     ],
     "calculator": [
-        {"action": "press_key", "description": "按Win+R打开运行窗口", "bbox_center": None, "params": "win+r"},
-        {"action": "type", "description": "输入calc", "bbox_center": None, "params": "calc"},
-        {"action": "press_key", "description": "按回车启动计算器", "bbox_center": None, "params": "enter"},
+        {
+            "action": "press_key",
+            "description": "按Win+R打开运行窗口",
+            "bbox_center": None,
+            "params": "win+r",
+        },
+        {
+            "action": "type",
+            "description": "输入calc",
+            "bbox_center": None,
+            "params": "calc",
+        },
+        {
+            "action": "press_key",
+            "description": "按回车启动计算器",
+            "bbox_center": None,
+            "params": "enter",
+        },
     ],
     "screenshot": [
-        {"action": "press_key", "description": "打开截图工具", "bbox_center": None, "params": "win+shift+s"},
-        {"action": "click", "description": "选择截图区域", "bbox_center": [500, 300], "params": None},
-        {"action": "click", "description": "保存截图", "bbox_center": [200, 600], "params": None},
+        {
+            "action": "press_key",
+            "description": "打开截图工具",
+            "bbox_center": None,
+            "params": "win+shift+s",
+        },
+        {
+            "action": "click",
+            "description": "选择截图区域",
+            "bbox_center": [500, 300],
+            "params": None,
+        },
+        {
+            "action": "click",
+            "description": "保存截图",
+            "bbox_center": [200, 600],
+            "params": None,
+        },
     ],
     "default": [
-        {"action": "wait", "description": "等待界面加载", "bbox_center": None, "params": 2},
-        {"action": "click", "description": "点击目标元素", "bbox_center": [500, 300], "params": None},
+        {
+            "action": "wait",
+            "description": "等待界面加载",
+            "bbox_center": None,
+            "params": 2,
+        },
+        {
+            "action": "click",
+            "description": "点击目标元素",
+            "bbox_center": [500, 300],
+            "params": None,
+        },
     ],
 }
 
@@ -71,6 +147,7 @@ def _choose_scenario(query: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # 主入口
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def process_query(
     query: str,
@@ -115,6 +192,7 @@ def process_query(
 
     # 1. Intent classification (unchanged)
     from server.services.llm_ai import classify_intent, detect_reference_type
+
     category, summary, confidence = classify_intent(query)
     reference_type = detect_reference_type(query)
     intent = Intent(
@@ -127,7 +205,8 @@ def process_query(
 
     # 2. Planning Agent + OmniParser run in parallel (they are independent)
     import concurrent.futures
-    from server.services.planning.planner import plan_steps, PlanningResult
+
+    from server.services.planning.planner import PlanningResult, plan_steps
 
     plan_result = None
 
@@ -143,12 +222,17 @@ def process_query(
             )
 
     planner_future = None
+    ui_elements: List[UIElement] = []
+    annotated_image: Optional[str] = image_base64
+    detection_meta: dict = {"backend": "omniparser", "route": "L3"}
+    parse_result_temp = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         planner_future = executor.submit(_call_planner)
         # While Planning Agent runs, start OmniParser in main thread
         if image_base64:
             try:
                 from server.services.omniparser_client import parse_screenshot_full
+
                 parse_result_temp = parse_screenshot_full(image_base64)
                 ui_elements = parse_result_temp.elements
                 annotated_image = parse_result_temp.annotated_image or image_base64
@@ -163,18 +247,15 @@ def process_query(
     # 3. Convert PlanningStep → ExecutedStep (all pending)
     executed_steps: List[ExecutedStep] = []
     for ps in planning_steps:
-        executed_steps.append(ExecutedStep(
-            step_index=ps.step_index,
-            instruction=ps.instruction,
-            status="pending",
-        ))
+        executed_steps.append(
+            ExecutedStep(
+                step_index=ps.step_index,
+                instruction=ps.instruction,
+                status="pending",
+            )
+        )
 
-    # 4. Take initial screenshot for display (OmniParser SoM) — already done in parallel above
-    # (ui_elements, annotated_image, detection_meta populated during Planning Agent call)
-    if parse_result_temp is None and not annotated_image:
-        ui_elements: List[UIElement] = []
-        annotated_image: Optional[str] = image_base64
-        detection_meta: dict = {"backend": "omniparser", "route": "L3"}
+    # 4. These are populated during the parallel section above
 
     # 5. Build response
     blueprint = Blueprint(
@@ -200,6 +281,7 @@ def process_query(
 # ═══════════════════════════════════════════════════════════════════════════
 # 兼容旧接口
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def generate_steps(
     query: str,
@@ -227,6 +309,7 @@ def relocate_step(
     """
     try:
         from server.services.omniparser_client import parse_screenshot_full
+
         parse_result = parse_screenshot_full(image_base64)
         elements = parse_result.elements
     except Exception:

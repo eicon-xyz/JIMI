@@ -1,6 +1,6 @@
-# B 端 UI 开发规范 — AgentPanel 组件
+# B 端 UI 开发规范 — AgentPanel 组件 v2
 
-> 对着这份文档就能写代码，不需要跑 A 端
+> 对应 A 端 Agent Loop Execution Mode | 2026-07-06
 
 ---
 
@@ -12,22 +12,18 @@
 ├─────────────────────────────────────────────┤
 │ [输入指令...                        ] [执行] │  ← 输入区
 ├─────────────────────────────────────────────┤
-│ 📋 任务: 安装微信到D盘                 83%  │  ← 进度文字
+│ 📋 任务: 打开记事本并输入Hello,world!  2/2  │  ← 进度文字
 │                                             │
-│ ✅ 打开浏览器                        2.3s   │  ← 步骤列表
-│ ✅ 访问下载页                        1.8s   │    (QListWidget)
-│ 🔄 点击下载按钮...                          │
-│ ⏳ 运行安装程序                              │
-│ ⏳ 选择D盘路径                              │
+│ ✅ 打开记事本应用              launched app │  ← 步骤列表
+│ ✅ 在记事本中输入Hello,world!  typed text   │    (QListWidget)
 ├──────────────────┬──────────────────────────┤
 │ [截图预览区域]    │ 📝 执行日志               │
-│                  │ > 思考：下一步需点击下载   │
-│                  │ > 动作：click(480,525)   │
-│                  │ > 等待 2s...             │
-│                  │ > 验证：步骤完成 ✅       │
+│ (OmniParser      │ > Step 1: 打开记事本应用  │
+│  标注图)         │ > 调用 launch_app         │
+│                  │ > ✅ launched (tier 1)    │
+│                  │ > Step 2: 输入文字...     │
 ├──────────────────┴──────────────────────────┤
-│ [▶ 开始(Ctrl+1)] [⏸ 暂停(Ctrl+2)]           │
-│ [▶ 恢复(Ctrl+3)] [⏹ 停止(Ctrl+4)] 红色      │
+│ [⏹ 停止]                                     │
 └─────────────────────────────────────────────┘
 ```
 
@@ -42,19 +38,16 @@ AgentPanel (QWidget)
 │   │   ├── QLineEdit "query_input"       ← placeholder: "输入你想让AI做的事..."
 │   │   └── QPushButton "execute_btn"     ← text: "执 行"
 │   │
-│   ├── 进度标题 (QLabel "progress_label") ← text: "就绪" / "📋 任务: xxx  83%"
+│   ├── 进度标题 (QLabel "progress_label") ← text: "就绪" / "📋 任务: xxx  1/2"
 │   │
 │   ├── 步骤列表 (QListWidget "step_list") ← 每行一个步骤
 │   │
 │   ├── 下部分割区 (QSplitter 水平)
-│   │   ├── 截图预览 (QLabel "screenshot_preview")  ← 固定 320×240
+│   │   ├── 截图预览 (QLabel "screenshot_preview")  ← 固定 320×240，支持缩放
 │   │   └── 执行日志 (QPlainTextEdit "log_output")  ← 只读
 │   │
 │   └── 底部控制栏 (QHBoxLayout)
-│       ├── QPushButton "start_btn"      ← "▶ 开始"  Ctrl+1
-│       ├── QPushButton "pause_btn"      ← "⏸ 暂停"  Ctrl+2
-│       ├── QPushButton "resume_btn"     ← "▶ 恢复"  Ctrl+3
-│       └── QPushButton "stop_btn"       ← "⏹ 停止"  Ctrl+4 (红色)
+│       └── QPushButton "stop_btn"       ← "⏹ 停止" (红色)
 ```
 
 ---
@@ -66,30 +59,26 @@ AgentPanel (QWidget)
 | 状态 | 图标/符号 | 文字样式 | 说明 |
 |------|----------|---------|------|
 | `pending` | ⏳ 灰色 | 正常 | 等待执行 |
-| `active` | 🔄 蓝色 + 加粗 | **加粗** | 正在执行 |
-| `done` | ✅ 绿色 | 正常 + 灰色耗时 | 已完成 |
+| `executing` | 🔄 蓝色 + 加粗 | **加粗** | 正在执行 |
+| `done` | ✅ 绿色 | 正常 + 灰色摘要 | 已完成，显示 action_summary |
 | `failed` | ❌ 红色 | 红色 | 执行失败 |
-| `blocked` | 🚫 橙色 | 橙色 | 被安全拦截 |
-| `skipped` | ⏭️ 灰色 | 灰色 + 删除线 | 跳过 |
 
 **代码示例**：
 ```python
 STATUS_ICONS = {
-    "pending":  "⏳",
-    "active":   "🔄",
-    "done":     "✅",
-    "failed":   "❌",
-    "blocked":  "🚫",
-    "skipped":  "⏭️",
+    "pending":    "⏳",
+    "executing":  "🔄",
+    "done":       "✅",
+    "failed":     "❌",
 }
 
 def format_step_text(step: dict) -> str:
     icon = STATUS_ICONS.get(step.get("status", "pending"), "⏳")
-    desc = step.get("description", "")
-    duration = step.get("duration_ms", 0)
-    if step["status"] == "done" and duration:
-        return f"{icon}  {desc}    {duration/1000:.1f}s"
-    return f"{icon}  {desc}"
+    instruction = step.get("instruction", "")
+    summary = step.get("action_summary", "")
+    if summary:
+        return f"{icon}  {instruction}  —  {summary}"
+    return f"{icon}  {instruction}"
 ```
 
 ---
@@ -98,16 +87,20 @@ def format_step_text(step: dict) -> str:
 
 ```python
 # 步骤状态
-STEP_STATUS = ("pending", "active", "done", "failed", "blocked", "skipped")
+STEP_STATUS = ("pending", "executing", "done", "failed")
 
 # 任务状态
-TASK_STATUS = ("idle", "planning", "executing", "paused", "completed", "failed", "cancelled")
+TASK_STATUS = ("idle", "planning", "executing", "completed", "failed", "cancelled")
 
-# 操作类型
-ACTIONS = ("click", "double_click", "right_click", "type", "press_key", "scroll", "wait", "drag")
+# SSE 事件类型
+SSE_EVENTS = (
+    "heartbeat", "step_start", "tool_called", "tool_result",
+    "screenshot_updated", "step_done", "step_failed", "log",
+    "task_done", "task_failed", "task_cancelled",
+)
 
 # 日志级别
-LOG_LEVELS = ("info", "warn", "error", "debug")
+LOG_LEVELS = ("info", "warn", "error")
 ```
 
 ---
@@ -119,83 +112,47 @@ LOG_LEVELS = ("info", "warn", "error", "debug")
 ```python
 MOCK_PLAN = {
     "task_id": "mock-task-001",
-    "goal": "安装微信到D盘",
-    "total_steps": 5,
+    "goal": "打开记事本并输入Hello,world!",
+    "total_steps": 2,
     "steps": [
         {
             "step_index": 1,
-            "action": "double_click",
-            "description": "双击桌面上的浏览器图标",
-            "target_element_id": "~3",
-            "bbox": [120, 340, 180, 410],
-            "bbox_center": [150, 375],
-            "params": None,
+            "instruction": "打开记事本应用",
             "status": "done",
-            "duration_ms": 2300,
+            "action_summary": "launched app '记事本' (tier 1)",
         },
         {
             "step_index": 2,
-            "action": "type",
-            "description": "在地址栏输入微信官网地址",
-            "target_element_id": "~7",
-            "bbox": [200, 50, 800, 90],
-            "bbox_center": [500, 70],
-            "params": "weixin.qq.com",
-            "status": "done",
-            "duration_ms": 1800,
-        },
-        {
-            "step_index": 3,
-            "action": "click",
-            "description": "点击下载按钮",
-            "target_element_id": "~12",
-            "bbox": [400, 500, 560, 550],
-            "bbox_center": [480, 525],
-            "params": None,
-            "status": "active",
-            "duration_ms": 0,
-        },
-        {
-            "step_index": 4,
-            "action": "double_click",
-            "description": "运行安装程序",
-            "target_element_id": "~5",
-            "bbox": [100, 600, 160, 660],
-            "bbox_center": [130, 630],
-            "params": None,
-            "status": "pending",
-            "duration_ms": 0,
-        },
-        {
-            "step_index": 5,
-            "action": "click",
-            "description": "选择安装路径为D盘",
-            "target_element_id": "~18",
-            "bbox": [700, 500, 800, 540],
-            "bbox_center": [750, 520],
-            "params": None,
-            "status": "pending",
-            "duration_ms": 0,
+            "instruction": "在记事本中输入'Hello,world!'",
+            "status": "executing",
+            "action_summary": None,
         },
     ],
 }
 
+MOCK_SSE_EVENTS = [
+    {"event": "step_start", "data": {"step_index": 1, "instruction": "打开记事本应用"}},
+    {"event": "log", "data": {"level": "info", "message": "调用 launch_app('记事本')"}},
+    {"event": "screenshot_updated", "data": {"step_index": 1, "annotated_image": "<base64>"}},
+    {"event": "step_done", "data": {"step_index": 1, "action_summary": "launched app '记事本' (tier 1)"}},
+    {"event": "step_start", "data": {"step_index": 2, "instruction": "在记事本中输入'Hello,world!'"}},
+    {"event": "screenshot_updated", "data": {"step_index": 2, "annotated_image": "<base64>"}},
+    {"event": "step_done", "data": {"step_index": 2, "action_summary": "typed 'Hello,world!'"}},
+    {"event": "task_done", "data": {"task_id": "mock-001", "goal": "...", "total_steps": 2, "completed_steps": 2}},
+]
+
 MOCK_LOGS = [
-    {"level": "info", "message": "AI 正在规划执行步骤...", "timestamp": "20:30:01"},
-    {"level": "info", "message": "生成5个执行步骤", "timestamp": "20:30:03"},
-    {"level": "info", "message": ">>> 步骤1: 双击桌面浏览器图标", "timestamp": "20:30:04"},
-    {"level": "info", "message": "动作: double_click, 坐标: (150,375)", "timestamp": "20:30:04"},
-    {"level": "info", "message": "验证: 浏览器已打开 ✅", "timestamp": "20:30:07"},
-    {"level": "info", "message": ">>> 步骤2: 输入微信官网地址", "timestamp": "20:30:08"},
-    {"level": "info", "message": "动作: type \"weixin.qq.com\"", "timestamp": "20:30:08"},
-    {"level": "info", "message": "验证: 地址栏已输入 ✅", "timestamp": "20:30:11"},
-    {"level": "info", "message": ">>> 步骤3: 点击下载按钮", "timestamp": "20:30:12"},
-    {"level": "info", "message": "动作: click(480,525)", "timestamp": "20:30:12"},
-    {"level": "warn", "message": "点击后页面无变化，重试中...", "timestamp": "20:30:15"},
+    {"level": "info", "message": "Planning: 打开记事本并输入Hello,world! (2 steps)", "timestamp": "20:30:01"},
+    {"level": "info", "message": ">>> Step 1: 打开记事本应用", "timestamp": "20:30:02"},
+    {"level": "info", "message": "Round 0: launch_app({'app_name': '记事本'}) → success=True", "timestamp": "20:30:02"},
+    {"level": "info", "message": "Layer 1 (mapping): '记事本' → 'notepad.exe'", "timestamp": "20:30:02"},
+    {"level": "info", "message": ">>> Step 2: 在记事本中输入'Hello,world!'", "timestamp": "20:30:06"},
+    {"level": "info", "message": "Round 1: type_text → success=True", "timestamp": "20:30:08"},
+    {"level": "info", "message": "typed 'Hello,world!' into element", "timestamp": "20:30:09"},
 ]
 ```
 
-**预览图片 mock**: 用 `QPixmap(320, 240)` 填充灰色+文字"截图预览"，或加载一张本地测试图片。
+**预览图片 mock**: 收到 `screenshot_updated` 事件时，解码 `annotated_image` base64 → QPixmap。Mock 阶段用灰色占位 QPixmap(320, 240) + "截图预览" 文字。
 
 ---
 
@@ -205,31 +162,29 @@ B 端收到 SSE 事件后，对应的 UI 操作：
 
 | SSE event | UI 更新 |
 |-----------|---------|
-| `plan_ready` | 填充步骤列表（全部 pending），显示 goal，清空日志 |
-| `step_start` | 该步骤状态 → active，高亮，日志追加"开始执行步骤 N" |
-| `step_executing` | 日志追加 detail |
-| `step_done` | 该步骤 → done ✅，显示耗时，刷新截图预览 |
-| `step_failed` | 该步骤 → failed ❌，日志标红 |
-| `step_retry` | 日志追加"正在重试..." |
-| `step_blocked` | 该步骤 → blocked 🚫，日志标橙 |
-| `log` | 追加到日志区（按 level 着色） |
-| `screenshot` | 解码 base64 → QPixmap → 更新截图预览 |
-| `task_done` | 所有未完成步骤标记为 done，显示总耗时，按钮恢复 |
-| `task_error` | 日志标红显示错误信息，停止按钮可点击 |
 | `heartbeat` | 忽略（保活用） |
+| `step_start` | 该步骤状态 → executing，高亮加粗，日志追加 |
+| `tool_called` | 日志追加 "调用 tool_name(args)" |
+| `tool_result` | 日志追加结果摘要 |
+| `screenshot_updated` | 解码 base64 → QPixmap → 更新截图预览 |
+| `step_done` | 该步骤 → done ✅，显示 action_summary |
+| `step_failed` | 该步骤 → failed ❌，日志标红 |
+| `log` | 追加到日志区（按 level 着色） |
+| `task_done` | 所有未完成步骤标记 done，显示总耗时，按钮恢复 |
+| `task_failed` | 日志标红显示失败原因，停止按钮禁用 |
+| `task_cancelled` | 当前步骤标为 failed，日志显示 "用户取消" |
 
 ---
 
 ## 七、按钮状态机
 
-| 当前状态 | 开始 | 暂停 | 恢复 | 停止 |
-|---------|------|------|------|------|
-| **idle** (就绪) | 可点击 | 禁用 | 禁用 | 禁用 |
-| **executing** (执行中) | 禁用 | 可点击 | 禁用 | 可点击 |
-| **paused** (暂停) | 禁用 | 禁用 | 可点击 | 可点击 |
-| **completed** (完成) | 可点击 | 禁用 | 禁用 | 禁用 |
-| **failed** (失败) | 可点击 | 禁用 | 禁用 | 可点击 |
-| **cancelled** (取消) | 可点击 | 禁用 | 禁用 | 禁用 |
+| 当前状态 | 执行 | 停止 |
+|---------|------|------|
+| **idle** (就绪) | 可点击 | 禁用 |
+| **executing** (执行中) | 禁用 | 可点击 |
+| **completed** (完成) | 可点击 | 禁用 |
+| **failed** (失败) | 可点击 | 禁用 |
+| **cancelled** (取消) | 可点击 | 禁用 |
 
 ---
 
@@ -240,9 +195,9 @@ B 端收到 SSE 事件后，对应的 UI 操作：
 | 1 | 创建 `AgentPanel(QWidget)`，搭好布局骨架 | 1h |
 | 2 | 用 mock 数据填充步骤列表，切换状态图标 | 1h |
 | 3 | 写日志追加逻辑 + 着色 | 30min |
-| 4 | 截图预览区域（先用灰色占位） | 30min |
-| 5 | 按钮状态机逻辑 | 1h |
+| 4 | 截图预览区域（支持 base64 解码 + 缩放） | 30min |
+| 5 | 按钮状态机逻辑 | 30min |
 | 6 | 对接 SSE 客户端线程 | 2h |
-| 7 | 集成到 main_widget（替换旧面板） | 30min |
+| 7 | 集成到 main_widget | 30min |
 
-**总计 ~6.5h，加调试留 2h 余量，一天足够。**
+**总计 ~6h，加调试留 2h 余量，一天足够。**

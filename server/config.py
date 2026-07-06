@@ -3,14 +3,13 @@ HAJIMI Server 配置文件 — OmniParser + 视觉 LLM 混合版本
 
 远程 GPU OmniParser 做元素检测，多模态 LLM 做规划与验证。
 """
+
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
-from core.defaults import (
-    DEFAULT_A_PORT,
-    DEFAULT_DEMO_KEY,
-)
+from core.defaults import DEFAULT_A_PORT, DEFAULT_DEMO_KEY
 
 # 加载 .env 文件 — 先检查 server/.env，再检查项目根目录
 _env_path = Path(__file__).parent / ".env"
@@ -46,7 +45,9 @@ class Config:
 
     # 通用 LLM（默认/回退）
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    LLM_BASE_URL: str = os.getenv(
+        "LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
     LLM_MODEL: str = os.getenv("LLM_MODEL", "qwen-vl-max")
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "120"))
 
@@ -88,10 +89,14 @@ class Config:
     # 特性开关
     # ═════════════════════════════════════════════════════════════════════
     USE_REAL_LLM: bool = os.getenv("USE_REAL_LLM", "true").lower() == "true"
-    STRICT_FINGERPRINT: bool = os.getenv("STRICT_FINGERPRINT", "false").lower() == "true"
+    STRICT_FINGERPRINT: bool = (
+        os.getenv("STRICT_FINGERPRINT", "false").lower() == "true"
+    )
 
     # SetFit 意图分类模型
-    INTENT_MODEL_PATH: str = os.getenv("INTENT_MODEL_PATH", "server/services/intent/model")
+    INTENT_MODEL_PATH: str = os.getenv(
+        "INTENT_MODEL_PATH", "server/services/intent/model"
+    )
 
     # Agent loop tuning
     MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "15"))
