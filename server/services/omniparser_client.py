@@ -290,7 +290,7 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
         allowed_types = {"button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other"}
         element_type = raw_type if raw_type in allowed_types else "other"
 
-        # Compute bbox center as integers
+        # Use OmniParser center if available, else bbox midpoint
         center_int = [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
         elements.append(

@@ -36,7 +36,7 @@ def generate_steps(query: str, elements: Optional[List[UIElement]] = None) -> Li
     """步骤生成入口 — 纯视觉 LLM"""
     from server.services.planning.router import process_query
     response = process_query(query, None)
-    return [{"action": s.action, "description": s.description, "target_element_id": s.target_element_id}
+    return [{"action": s.action, "description": s.instruction, "target_element_id": s.target_element_id}
             for s in response.steps]
 
 

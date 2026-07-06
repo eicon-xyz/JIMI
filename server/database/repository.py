@@ -59,7 +59,7 @@ class TaskRepository:
                     step_index=step.step_index,
                     action=step.action,
                     target_element_id=step.target_element_id,
-                    target_bbox=step.annotation.highlight_bbox if step.annotation else None,
+                    target_bbox=None,  # ExecutedStep has no .annotation field
                     status=step.status,
                 )
                 db.add(step_log)

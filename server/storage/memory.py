@@ -45,7 +45,7 @@ class TaskStore:
             ui_elements=[e.model_dump() for e in response.ui_elements],
             created_at=now,
             updated_at=now,
-            constraints=response.constraints,
+            constraints=getattr(response, "constraints", None),
         )
         with self._lock:
             self._store[state.task_id] = state

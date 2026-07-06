@@ -472,7 +472,7 @@ class ExecutionAgent:
 
             # Call LLM with tool definitions
             try:
-                raw = self._call_llm_with_tools(messages)
+                raw, assistant_msg = self._call_llm_with_tools(messages)
             except Exception as e:
                 logger.error(f"LLM call failed at round {round_num}: {e}")
                 step.status = "failed"
@@ -509,11 +509,14 @@ class ExecutionAgent:
             if result.get("action_summary"):
                 action_summary = result["action_summary"]
 
-            # Add assistant response + tool result to conversation
-            messages.append({"role": "assistant", "content": raw})
+            # Add assistant message + tool result to conversation using the original
+            # assistant message (with real tool_calls) so OpenAI API can match the
+            # tool_call_id in the subsequent role:tool message
+            messages.append(assistant_msg if assistant_msg else {"role": "assistant", "content": raw})
+            tool_call_id = f"call_{round_num}"
             messages.append({
                 "role": "tool",
-                "tool_call_id": f"call_{round_num}",
+                "tool_call_id": tool_call_id,
                 "content": json.dumps(result, ensure_ascii=False),
             })
 
@@ -523,8 +526,8 @@ class ExecutionAgent:
         step.action_summary = "exceeded max tool calls"
         return step
 
-    def _call_llm_with_tools(self, messages: list[dict]) -> str:
-        """Call LLM with function-calling tools. Returns raw response text."""
+    def _call_llm_with_tools(self, messages: list[dict]) -> tuple[str, Optional[dict]]:
+        """Call LLM with function-calling tools. Returns (raw_response_text, original_assistant_msg)."""
         pc = self._get_provider_config()
         base = pc["base_url"].rstrip("/")
         headers = {
@@ -555,8 +558,8 @@ class ExecutionAgent:
                     "__tool_call__": True,
                     "name": func["name"],
                     "arguments": json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"],
-                })
-            return msg.get("content", "")
+                }), msg  # return the original assistant message for conversation threading
+            return msg.get("content", ""), None
 
     def _parse_tool_call(self, raw: str) -> tuple[Optional[str], dict]:
         """Parse tool call from LLM response. Returns (tool_name, args_dict)."""

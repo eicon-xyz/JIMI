@@ -59,19 +59,19 @@ class TestMockExecutionLoop:
                     "__tool_call__": True,
                     "name": "get_screen_info",
                     "arguments": {},
-                })
+                }), None  # (raw, assistant_msg) tuple
             elif call_count[0] == 2:
                 return json.dumps({
                     "__tool_call__": True,
                     "name": "click",
                     "arguments": {"element_id": "1"},
-                })
+                }), None
             else:
                 return json.dumps({
                     "__tool_call__": True,
                     "name": "mark_step_done",
                     "arguments": {"reason": "click successful"},
-                })
+                }), None
 
         mock_llm.side_effect = mock_call
 
@@ -103,13 +103,13 @@ class TestMockExecutionLoop:
                     "__tool_call__": True,
                     "name": "get_screen_info",
                     "arguments": {},
-                })
+                }), None
             else:
                 return json.dumps({
                     "__tool_call__": True,
                     "name": "mark_step_failed",
                     "arguments": {"reason": "element not found on screen"},
-                })
+                }), None
 
         mock_llm.side_effect = mock_call
 
@@ -127,11 +127,11 @@ class TestMockExecutionLoop:
     @patch.object(ExecutionAgent, '_call_llm_with_tools')
     def test_precondition_already_satisfied(self, mock_llm):
         """Simulate: LLM immediately calls mark_step_done with precondition text."""
-        mock_llm.return_value = json.dumps({
+        mock_llm.return_value = (json.dumps({
             "__tool_call__": True,
             "name": "mark_step_done",
             "arguments": {"reason": "precondition already satisfied"},
-        })
+        }), None)
 
         agent = ExecutionAgent()
         step = ExecutedStep(step_index=2, instruction="打开浏览器应用")
