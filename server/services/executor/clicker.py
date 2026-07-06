@@ -4,17 +4,18 @@ HAJIMI 自动操作助手 — 键鼠操作封装
 基于 pyautogui + pydirectinput，纯坐标模拟执行。
 UIA 精确操控将在后续版本实现。
 """
+
 from __future__ import annotations
 
-import time
 import logging
-from typing import Optional
+import time
 
 logger = logging.getLogger(__name__)
 
 # pydirectinput 在 Windows 上更快更可靠（不抢焦点），回退 pyautogui
 try:
     import pydirectinput
+
     _USE_DIRECT = True
     pydirectinput.FAILSAFE = False
 except ImportError:
@@ -22,6 +23,7 @@ except ImportError:
 
 try:
     import pyautogui
+
     _HAS_PYAUTOGUI = True
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.1
@@ -29,7 +31,9 @@ except ImportError:
     _HAS_PYAUTOGUI = False
 
 if not _HAS_PYAUTOGUI and not _USE_DIRECT:
-    logger.warning("Neither pydirectinput nor pyautogui available — clicker in mock mode")
+    logger.warning(
+        "Neither pydirectinput nor pyautogui available — clicker in mock mode"
+    )
 
 
 def _safe_bbox(bbox_center):
@@ -41,7 +45,9 @@ def _safe_bbox(bbox_center):
     raise ValueError(f"Invalid bbox_center: {bbox_center}")
 
 
-def _clamp_coord(x: int, y: int, screen_w: int = 1920, screen_h: int = 1080, margin: int = 5) -> tuple[int, int]:
+def _clamp_coord(
+    x: int, y: int, screen_w: int = 1920, screen_h: int = 1080, margin: int = 5
+) -> tuple[int, int]:
     """裁剪坐标到屏幕边界内。"""
     x = max(margin, min(screen_w - margin, x))
     y = max(margin, min(screen_h - margin, y))
@@ -59,7 +65,7 @@ def _move_to(x: int, y: int, duration: float = 0.2):
         logger.info(f"mock move: ({x},{y})")
 
 
-def _click(button: str = 'left', clicks: int = 1):
+def _click(button: str = "left", clicks: int = 1):
     """点击鼠标。"""
     if _USE_DIRECT:
         for _ in range(clicks):
@@ -75,7 +81,8 @@ def _click(button: str = 'left', clicks: int = 1):
 # 公开 API
 # ═══════════════════════════════════════════════════════════════════════════
 
-def click_at(bbox_center, button: str = 'left', clicks: int = 1) -> dict:
+
+def click_at(bbox_center, button: str = "left", clicks: int = 1) -> dict:
     """
     在指定坐标处点击。
 
@@ -105,7 +112,7 @@ def double_click_at(bbox_center) -> dict:
 
 def right_click_at(bbox_center) -> dict:
     """右键点击指定坐标。"""
-    return click_at(bbox_center, button='right')
+    return click_at(bbox_center, button="right")
 
 
 def type_text(text: str, interval: float = 0.03) -> dict:
@@ -116,19 +123,21 @@ def type_text(text: str, interval: float = 0.03) -> dict:
         return {"success": True, "text": text, "length": len(text)}
     try:
         import pyperclip
+
         old = pyperclip.paste()
         pyperclip.copy(text)
         # 用 keyDown/keyUp 模拟 Ctrl+V（避免 hotkey bug）
         if _USE_DIRECT:
             import pydirectinput as pdi
-            pdi.keyDown('ctrl')
+
+            pdi.keyDown("ctrl")
             time.sleep(0.05)
-            pdi.keyDown('v')
+            pdi.keyDown("v")
             time.sleep(0.1)
-            pdi.keyUp('v')
-            pdi.keyUp('ctrl')
+            pdi.keyUp("v")
+            pdi.keyUp("ctrl")
         else:
-            press_keys('ctrl', 'v')
+            press_keys("ctrl", "v")
         time.sleep(0.3)
         try:
             pyperclip.copy(old)
@@ -137,6 +146,7 @@ def type_text(text: str, interval: float = 0.03) -> dict:
     except ImportError:
         if _USE_DIRECT:
             import pydirectinput as pdi
+
             pdi.typewrite(text, interval=interval)
         else:
             pyautogui.typewrite(text, interval=interval)
@@ -145,13 +155,14 @@ def type_text(text: str, interval: float = 0.03) -> dict:
 
 
 def press_keys(*keys: str) -> dict:
-    key_str = '+'.join(keys)
+    key_str = "+".join(keys)
     if _USE_DIRECT:
         try:
             pydirectinput.hotkey(*keys)
         except AttributeError:
             # 某些版本无 hotkey，逐个按
             import pydirectinput as pdi
+
             for k in keys:
                 pdi.keyDown(k)
             for k in reversed(keys):
@@ -197,30 +208,30 @@ def execute_action(action: str, bbox_center, params=None) -> dict:
     Returns:
         操作结果 dict，包含 success 字段
     """
-    if action == 'click':
+    if action == "click":
         return click_at(bbox_center)
-    elif action in ('double_click','locate_icon','find_icon'):
-        return double_click_at(bbox_center) if bbox_center else press_keys('win', 'r')
-    elif action == 'right_click':
+    elif action in ("double_click", "locate_icon", "find_icon"):
+        return double_click_at(bbox_center) if bbox_center else press_keys("win", "r")
+    elif action == "right_click":
         return right_click_at(bbox_center)
-    elif action == 'type':
-        return type_text(str(params or ''))
-    elif action == 'press_key':
-        keys = str(params or 'enter').split('+')
+    elif action == "type":
+        return type_text(str(params or ""))
+    elif action == "press_key":
+        keys = str(params or "enter").split("+")
         return press_keys(*keys)
-    elif action == 'scroll':
+    elif action == "scroll":
         return scroll_at(bbox_center, int(params or -3))
-    elif action == 'wait':
+    elif action == "wait":
         # params: seconds or {seconds: N} or {x, y} (ignore coords in wait)
         if isinstance(params, dict):
-            secs = float(params.get('seconds', params.get('secs', 1.0)))
+            secs = float(params.get("seconds", params.get("secs", 1.0)))
         else:
             secs = float(params or 1.0)
         time.sleep(secs)
         return {"success": True, "waited": secs}
-    elif action == 'move':
+    elif action == "move":
         return move_to(bbox_center)
-    elif action == 'drag':
+    elif action == "drag":
         if params and len(params) == 4:
             x1, y1, x2, y2 = map(int, params)
             _move_to(x1, y1, duration=0.2)
@@ -234,7 +245,7 @@ def execute_action(action: str, bbox_center, params=None) -> dict:
                 logger.info(f"mock drag: ({x1},{y1})->({x2},{y2})")
             return {"success": True, "drag": params}
         return {"success": False, "error": f"Invalid drag params: {params}"}
-    elif action == 'launch_app':
+    elif action == "launch_app":
         logger.info(f"launch_app step (no-op in engine): {params}")
         return {"success": True, "launched": str(params or "unknown")}
     else:

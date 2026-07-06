@@ -3,26 +3,19 @@ HAJIMI 自动操作助手 — Demo API 路由
 
 OmniParser 元素检测 + LLM 执行计划 + SSE 推送 + 自动执行。
 """
+
 import json
-import time
 import threading
-import uuid
+import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header, status
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from server.config import settings
-from server.models.schemas import (
-    ProcessRequest,
-    ProcessResponse,
-    HealthResponse,
-    CancelRequest,
-)
+from server.database.repository import RedlineRepository, TaskRepository
+from server.models.schemas import CancelRequest, HealthResponse, ProcessRequest
 from server.storage.memory import task_store
-from server.database.repository import (
-    TaskRepository, RedlineRepository,
-)
 
 router = APIRouter(prefix="/api/demo", tags=["Demo Core"])
 
@@ -110,9 +103,11 @@ async def execute_task(
     """
     接收截图与用户指令，生成执行计划并后台通过Agent循环执行。
     """
-    from server.services.planning.router import process_query as plan_query
-    from server.services.executor.engine import run_plan_agent_loop, get_cancel_event
+    from server.services.executor.engine import get_cancel_event
+    from server.services.executor.engine import register_task as engine_register
+    from server.services.executor.engine import run_plan_agent_loop
     from server.services.executor.safety import check_query
+    from server.services.planning.router import process_query as plan_query
 
     # 0. Redline
     safety = check_query(request.query)
@@ -141,7 +136,9 @@ async def execute_task(
             "success": False,
             "error": {
                 "code": "NO_PLAN",
-                "message": getattr(response, "redline", None) and response.redline.message or "规划失败",
+                "message": getattr(response, "redline", None)
+                and response.redline.message
+                or "规划失败",
             },
         }
 
@@ -151,8 +148,9 @@ async def execute_task(
 
     # 3. Register task to create the cancel Event (deduplicated — no-op if already exists)
     #    Then get the cancel event for the background thread
-    from server.services.executor.engine import register_task as engine_register, get_cancel_event
-    engine_register(response.task_id)  # idempotent: reuses existing queue if already registered
+    engine_register(
+        response.task_id
+    )  # idempotent: reuses existing queue if already registered
     cancel_event = get_cancel_event(response.task_id)
 
     # 4. Convert steps to dicts for engine
@@ -198,7 +196,9 @@ async def stream_events(task_id: str):
 
     def generate():
         # 心跳确认连接
-        yield _format_sse("heartbeat", {"timestamp": str(time.time()), "task_id": task_id})
+        yield _format_sse(
+            "heartbeat", {"timestamp": str(time.time()), "task_id": task_id}
+        )
 
         # 持续从队列读取事件
         while True:
@@ -243,6 +243,7 @@ async def cancel_task(
     state = task_store.get(request.task_id)
     if state:
         from server.services.planning.blueprint_engine import BlueprintEngine
+
         BlueprintEngine().terminate(state)
         task_store.update(state)
 

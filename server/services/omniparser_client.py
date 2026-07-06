@@ -5,6 +5,7 @@ The OmniParser API server is deployed separately (D:\\ominprester) and exposes
 POST /parse, which returns structured UI elements for a base64-encoded image.
 This module converts those elements into the HAJIMI UIElement schema.
 """
+
 import base64
 import io
 import re
@@ -17,7 +18,6 @@ from PIL import Image
 
 from server.config import settings
 from server.models.schemas import UIElement
-
 
 _OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
 _OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
@@ -64,6 +64,7 @@ def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
     """Try to decode image dimensions from base64 using PIL as fallback."""
     try:
         from PIL import Image
+
         raw = base64.b64decode(payload_base64)
         with Image.open(io.BytesIO(raw)) as img:
             return [img.width, img.height]
@@ -74,6 +75,7 @@ def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
 @dataclass
 class ParseResult:
     """Full result from OmniParser parse call."""
+
     elements: List[UIElement] = field(default_factory=list)
     annotated_image: Optional[str] = None
     reference_resolution: Optional[List[int]] = None
@@ -104,7 +106,7 @@ def _compute_spatial_relations(elements: List[UIElement]) -> None:
         ay1, ay2 = a.bbox[1], a.bbox[3]
         ax1, ax2 = a.bbox[0], a.bbox[2]
         ah = ay2 - ay1
-        aw = ax2 - ax1
+        ax2 - ax1
         if ah <= 0:
             continue
 
@@ -120,7 +122,7 @@ def _compute_spatial_relations(elements: List[UIElement]) -> None:
             by1, by2 = b.bbox[1], b.bbox[3]
             bx1, bx2 = b.bbox[0], b.bbox[2]
             bh = by2 - by1
-            bw = bx2 - bx1
+            bx2 - bx1
             if bh <= 0:
                 continue
 
@@ -173,14 +175,16 @@ def _filter_elements_for_llm(elements: List[UIElement]) -> List[dict]:
     """
     result = []
     for el in elements:
-        result.append({
-            "id": el.element_id,
-            "content": el.text or "",
-            "left_ids": el.left_elem_ids,
-            "right_ids": el.right_elem_ids,
-            "top_ids": el.top_elem_ids,
-            "bottom_ids": el.bottom_elem_ids,
-        })
+        result.append(
+            {
+                "id": el.element_id,
+                "content": el.text or "",
+                "left_ids": el.left_elem_ids,
+                "right_ids": el.right_elem_ids,
+                "top_ids": el.top_elem_ids,
+                "bottom_ids": el.bottom_elem_ids,
+            }
+        )
     return result
 
 
@@ -193,7 +197,9 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     return parse_screenshot_full(image_base64).elements
 
 
-def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = True) -> ParseResult:
+def parse_screenshot_full(
+    image_base64: Optional[str], compute_spatial: bool = True
+) -> ParseResult:
     """
     Call the local OmniParser V2 API and return a full ParseResult with metadata.
 
@@ -229,7 +235,9 @@ def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = T
                 break  # success, exit retry loop
         except Exception as exc:
             last_exc = exc
-            print(f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}")
+            print(
+                f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}"
+            )
     else:
         # All retries exhausted
         print(f"[OmniParser Client] all retries exhausted: {last_exc}")
@@ -244,7 +252,8 @@ def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = T
     # If OmniParser returned all None IDs, assign sequential ones
     all_none = all(
         isinstance(e, dict) and e.get("id") is None
-        for e in raw_elements if isinstance(e, dict)
+        for e in raw_elements
+        if isinstance(e, dict)
     )
 
     reference_resolution = None
@@ -279,9 +288,9 @@ def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = T
 
         raw_id = item.get("id")
         if raw_id is not None:
-            element_id = str(raw_id)             # strip ~ prefix — was: f"~{raw_id}"
+            element_id = str(raw_id)  # strip ~ prefix — was: f"~{raw_id}"
         elif all_none:
-            element_id = str(seq)                # strip ~ prefix — was: f"~{seq}"
+            element_id = str(seq)  # strip ~ prefix — was: f"~{seq}"
             seq += 1
         else:
             element_id = "?"
@@ -290,7 +299,16 @@ def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = T
         center_int = [int(center[0]), int(center[1])]
 
         raw_type = item.get("element_type", item.get("type", "other"))
-        allowed_types = {"button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other"}
+        allowed_types = {
+            "button",
+            "input",
+            "icon",
+            "menu",
+            "checkbox",
+            "dropdown",
+            "text",
+            "other",
+        }
         element_type = raw_type if raw_type in allowed_types else "other"
 
         # Use OmniParser center if available, else bbox midpoint
@@ -313,7 +331,13 @@ def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = T
 
     # ── 提取 SoM 标注图 ──
     annotated_image = None
-    for key in ("som_image_base64", "som_image", "som_base64", "annotated_image", "labeled_image"):
+    for key in (
+        "som_image_base64",
+        "som_image",
+        "som_base64",
+        "annotated_image",
+        "labeled_image",
+    ):
         val = data.get(key)
         if isinstance(val, str) and val:
             annotated_image = _compress_som_image(val)

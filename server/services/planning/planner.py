@@ -2,14 +2,15 @@
 Planning Agent — text-only LLM call that decomposes a user query
 into atomic operation steps. No screenshots, no OmniParser.
 """
+
 from __future__ import annotations
-import json
+
 import logging
 from dataclasses import dataclass, field
 from typing import List
 
-from server.services.llm.providers import call_llm, extract_json_object
 from server.models.schemas import PlanningStep
+from server.services.llm.providers import call_llm, extract_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def plan_steps(query: str, max_retries: int = 2) -> PlanningResult:
     Raises:
         ValueError: if Planning Agent fails after all retries
     """
-    user_text = f'用户指令：「{query}」\n\n请将这条指令分解为操作步骤。只输出JSON。'
+    user_text = f"用户指令：「{query}」\n\n请将这条指令分解为操作步骤。只输出JSON。"
 
     for attempt in range(max_retries + 1):
         try:
@@ -81,15 +82,19 @@ def plan_steps(query: str, max_retries: int = 2) -> PlanningResult:
             steps = []
             for s in raw_steps:
                 if isinstance(s, str):
-                    steps.append(PlanningStep(
-                        step_index=len(steps) + 1,
-                        instruction=s,
-                    ))
+                    steps.append(
+                        PlanningStep(
+                            step_index=len(steps) + 1,
+                            instruction=s,
+                        )
+                    )
                 elif isinstance(s, dict):
-                    steps.append(PlanningStep(
-                        step_index=s.get("step_index", len(steps) + 1),
-                        instruction=s.get("instruction", str(s)),
-                    ))
+                    steps.append(
+                        PlanningStep(
+                            step_index=s.get("step_index", len(steps) + 1),
+                            instruction=s.get("instruction", str(s)),
+                        )
+                    )
 
             if not steps:
                 raise ValueError("Planning Agent returned empty steps")
@@ -98,9 +103,13 @@ def plan_steps(query: str, max_retries: int = 2) -> PlanningResult:
             return PlanningResult(goal=goal, steps=steps)
 
         except Exception as e:
-            logger.warning(f"Planning Agent attempt {attempt+1}/{max_retries+1} failed: {e}")
+            logger.warning(
+                f"Planning Agent attempt {attempt+1}/{max_retries+1} failed: {e}"
+            )
             if attempt >= max_retries:
-                raise ValueError(f"Planning Agent failed after {max_retries+1} attempts: {e}") from e
+                raise ValueError(
+                    f"Planning Agent failed after {max_retries+1} attempts: {e}"
+                ) from e
             continue
 
     # Unreachable but type-checker safe

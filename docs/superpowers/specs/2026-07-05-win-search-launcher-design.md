@@ -1,85 +1,70 @@
-# Win+Search 启动通道 — 设计文档
+# 应用启动通道 — 设计文档
 
 ## 目标
 
-放弃不可靠的"桌面图标视觉识别"，改用 **Win键→开始菜单搜索→OmniParser OCR匹配→点击结果** 启动应用。
+用 **三层降级策略** 替代单一的 Win+Search 通道，在可靠性 ≥80% 的前提下将常见应用的启动成功率提升到接近 100%。
 
-## 根本原因
-
-当前 icon_stitch 方案：LLM 看图识别 19 个放大到 200px 的桌面图标 → 返回 element_id。
-实测结果：NetEase 映射到 ~56（面积 155412 的巨大误检区），5 个 target 中 3 个映射到同一 false ID。
-**Qwen2.5-VL-7B 在小图标识别上不可靠，且不可修复。**
-
-## 新管道设计
+## 架构
 
 ```
-用户指令 "打开网易云音乐，放首歌"
+launch_app("记事本")
     │
-    ▼
-阶段1: 应用启动（Win+Search 通道）
+    ├─ Layer 1: 映射表命中？
+    │   └─ APP_EXECUTABLE_MAP["记事本"] → "notepad.exe"
+    │      → subprocess.Popen / os.startfile  ✅ 100% 可靠
     │
-    ├─ press_keys('win')           # 打开开始菜单
-    ├─ pyperclip + ctrl+v 粘贴搜索词   # 绕过输入法干扰
-    ├─ sleep(800ms)                 # 等待搜索结果渲染
-    ├─ mss 截图 → OmniParser        # 检测搜索结果区域
-    ├─ 遍历 OCR text 字段           # 匹配 "网易云"/"netease" 等
-    ├─ 取匹配 bbox → click_at()     # 启动应用
-    └─ sleep(3s) 等待应用打开
+    ├─ Layer 2: shutil.which() 在 PATH 找到？
+    │   └─ shutil.which("chrome") → "C:\...\chrome.exe"
+    │      → subprocess.Popen  ✅ 90%+ 可靠
     │
-    ▼
-阶段2: 应用内操作（OmniParser 检测 UI 元素）
-    │
-    ├─ 截图 → OmniParser            # 检测已打开应用的 UI
-    ├─ LLM 看图规划接下来的步骤     # 生成 "点击搜索框→输入歌名→点播放" 等
-    ├─ 每步：OmniParser 定位 → click
-    └─ 每步：截图验证
+    └─ Layer 3: Win+Search 兜底
+        ├─ pyautogui.keyDown("win") → keyUp("win")
+        ├─ sleep(0.5)
+        ├─ pyperclip.copy(app_name) → hotkey("ctrl", "v")
+        ├─ sleep(0.8)
+        ├─ press("enter") + sleep(0.5)
+        └─ press("esc")  ⚠️ ~80% 可靠（RDP 下下降到 ~60%）
 ```
 
-## 模块修改
+## 设计决策
 
-### 新增: `server/services/launcher.py`
-```python
-def launch_app(app_name: str) -> dict:
-    """
-    Win+Search 通道启动应用。
-    1. press Win
-    2. Paste app_name via clipboard
-    3. Wait 800ms
-    4. Screenshot → OmniParser
-    5. Match OCR text → find bbox
-    6. Click
-    Returns: {"success": True, "app_name": str, "clicked": (x,y)}
-    """
+| 决策 | 理由 |
+|------|------|
+| Layer 1 映射表在 launcher.py 而非 agent.py | 单一职责：launcher 负责启动，agent 负责工具调度 |
+| 不做 UIA 搜索框检测（方案 B） | 不同 Windows 版本 ClassName 不同，维护成本高 |
+| Layer 3 用 pyautogui keyDown/keyUp 而非 pydirectinput hotkey | 实测 pydirectinput 在某些机器上无法触发 Win 键 |
+| 映射表同时包含中英文 key | 用户可能用中文或英文指令 |
+| `os.startfile` 用于绝对路径的 .exe | 通过 Windows shell 关联启动，更可靠 |
 
-def _match_ocr_to_app(ocr_items: list, app_name: str) -> Optional[dict]:
-    """
-    将 OmniParser OCR 文本匹配到目标应用名。
-    支持: 精确匹配 → 模糊匹配 → 拼音匹配
-    Returns: {"bbox": [...], "text": "..."} or None
-    """
-```
+## 映射表覆盖范围
 
-### 修改: `server/services/planning/router.py` `process_query()`
-- **移除** icon_stitch 的 identify_from_strips 调用
-- **替换为** `launcher.launch_app()` 调用
-- 启动成功后，第二阶段用现有 LLM 规划后续操作
+`server/services/launcher.py` → `APP_EXECUTABLE_MAP`
 
-### 删除: `server/services/icon_stitch.py`
-不再需要
+| 类别 | 示例 |
+|------|------|
+| 系统应用 | 计算器/记事本/画图/截图/任务管理器/控制面板/资源管理器/cmd/PowerShell |
+| 浏览器 | Chrome/Edge/Firefox |
+| 通讯 | 微信/QQ/钉钉/飞书/企业微信/Teams |
+| 办公 | Word/Excel/PowerPoint/Outlook/WPS |
+| 开发 | VSCode/Terminal/Git Bash |
+| 音乐 | 网易云音乐/QQ音乐/Spotify/VLC |
+| 其他 | Steam/Telegram/Discord/Notion/Obsidian |
 
-### 保留: `server/services/executor/` (engine, clicker, safety)
-不变
-
-### 保留: `server/services/omniparser_client.py`
-不变
-
-### 保留: `core/screen_capture.py`
-不变
+新增应用只需在 `APP_EXECUTABLE_MAP` 加一行。
 
 ## 验收标准
 
-1. `launch_app("NetEase Cloud Music")` → 成功打开网易云音乐
-2. `launch_app("Calculator")` → 成功打开计算器
-3. `launch_app("Notepad")` → 成功打开记事本
-4. 全管道: "打开网易云音乐，放首歌" → 应用打开 + 后续操作规划执行
-5. 30 tests passed
+1. `launch_app("记事本")` → Tier 1, notepad.exe 启动
+2. `launch_app("notepad")` → Tier 1, notepad.exe 启动
+3. `launch_app("计算器")` → Tier 1, calc.exe 启动
+4. `launch_app("chrome")` → Tier 1 (mapping) 或 Tier 2 (PATH), Chrome 启动
+5. `launch_app("FakeApp123")` → Tier 3 Win+Search 兜底（若失败返回 error）
+6. 44 tests passed
+
+## 相关文件
+
+| 文件 | 角色 |
+|------|------|
+| `server/services/launcher.py` | 三层降级 + 映射表 + 前台聚焦 |
+| `server/services/executor/agent.py` | 引用 `APP_EXECUTABLE_MAP` 做中文名映射后调用 `launch_app()` |
+| `server/services/executor/clicker.py` | 键鼠封装（press_keys, type_text 等） |

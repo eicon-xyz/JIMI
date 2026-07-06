@@ -2,9 +2,10 @@
 HAJIMI Demo API Pydantic 模型
 严格对应 docs/api-contract-demo.md 中的数据定义
 """
-from typing import Optional, List
-from pydantic import BaseModel, Field
 
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 # ────────────────────────── 基础模型 ──────────────────────────
 
@@ -97,7 +98,9 @@ class Step(BaseModel):
         pattern="^(pending|active|done|skipped|failed)$",
     )
     annotation: Optional[Annotation] = None
-    params: Optional[str] = Field(None, description="操作参数（文本/组合键/坐标字符串）")
+    params: Optional[str] = Field(
+        None, description="操作参数（文本/组合键/坐标字符串）"
+    )
 
 
 class Blueprint(BaseModel):
@@ -162,9 +165,7 @@ class ProcessResponse(BaseModel):
     goal: str = ""  # NEW: from Planning Agent
     intent: Intent
     ui_elements: List[UIElement]
-    annotated_image: Optional[str] = Field(
-        None, description="带 SoM 标注的截图 Base64"
-    )
+    annotated_image: Optional[str] = Field(None, description="带 SoM 标注的截图 Base64")
     blueprint: Blueprint
     steps: List[ExecutedStep]
     redline: Optional[RedlineInfo] = None
@@ -292,12 +293,8 @@ class InspectRequest(BaseModel):
         ...,
         description="Base64 截图，含 data URI 前缀",
     )
-    screen_width: Optional[int] = Field(
-        None, description="屏幕物理宽度（像素）"
-    )
-    screen_height: Optional[int] = Field(
-        None, description="屏幕物理高度（像素）"
-    )
+    screen_width: Optional[int] = Field(None, description="屏幕物理宽度（像素）")
+    screen_height: Optional[int] = Field(None, description="屏幕物理高度（像素）")
 
 
 class InspectResponse(BaseModel):
