@@ -96,13 +96,19 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - browser_type(selector, text): 在输入框输入文本。
 - browser_scroll(direction, amount): 滚轮翻页。
 - browser_close(): 关闭浏览器窗口。
+- browser_screenshot(): 截取当前浏览器页面的屏幕截图，用于视觉验证。
 
 ### 浏览器工作流程
 1. 如果当前步骤涉及网页操作，先调用 browser_navigate 打开目标网址
 2. 然后调用 browser_snapshot 查看页面有哪些可交互元素
 3. 根据 snapshot 返回的 selector 信息，调用 browser_click / browser_type 执行操作
 4. 必要时再次 browser_snapshot 验证结果
-5. 步骤完成后，如果后续不再需要浏览器，调用 browser_close 释放资源"""
+5. 步骤完成后，如果后续不再需要浏览器，调用 browser_close 释放资源。
+
+### 视觉验证
+- 当需要判断页面是否显示了预期内容时（如搜索结果、登录状态），使用 browser_screenshot
+- browser_screenshot 返回的是 JPEG 图片，你可以"看到"页面，但不需要 OmniParser
+- snapshot 用于定位元素 + 点击，screenshot 用于视觉确认"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -347,6 +353,14 @@ def _build_tool_definitions() -> list[dict]:
             "function": {
                 "name": "browser_close",
                 "description": "关闭浏览器窗口。任务完成后调用以释放资源。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_screenshot",
+                "description": "对当前浏览器页面截图，返回base64 JPEG。用于视觉验证页面状态（如'搜索结果是否出现'）。",
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -770,6 +784,9 @@ class ExecutionAgent:
         elif tool_name == "browser_close":
             self._run_async(self.browser.close())
             return {"success": True, "action_summary": "browser closed"}
+        elif tool_name == "browser_screenshot":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.screenshot())
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 

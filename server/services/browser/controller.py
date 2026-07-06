@@ -378,6 +378,25 @@ class BrowserController:
             "action_summary": f"scrolled {direction} {amount}px",
         }
 
+    async def screenshot(self) -> dict:
+        """Take a full-page screenshot, return as base64 JPEG.
+
+        LLM can use this for visual verification — e.g., "does the page
+        show search results?".  Returns a data-URI string suitable for
+        embedding in a vision LLM call.
+        """
+        self._ensure_started()
+        import base64
+
+        buf = await self._page.screenshot(type="jpeg", quality=70, full_page=False)
+        b64 = base64.b64encode(buf).decode()
+        logger.info("Browser screenshot: %d bytes JPEG → %d chars b64", len(buf), len(b64))
+        return {
+            "success": True,
+            "image_b64": f"data:image/jpeg;base64,{b64}",
+            "action_summary": "browser screenshot taken",
+        }
+
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _ensure_started(self) -> None:
