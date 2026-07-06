@@ -97,6 +97,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - browser_scroll(direction, amount): 滚轮翻页。
 - browser_close(): 关闭浏览器窗口。
 - browser_screenshot(): 截取当前浏览器页面的屏幕截图，用于视觉验证。
+- browser_press_key(keys): 在浏览器中按键盘按键。如'Enter'提交搜索、'Escape'关闭弹窗。
 
 ### 浏览器工作流程
 1. 如果当前步骤涉及网页操作，先调用 browser_navigate 打开目标网址
@@ -362,6 +363,23 @@ def _build_tool_definitions() -> list[dict]:
                 "name": "browser_screenshot",
                 "description": "对当前浏览器页面截图，返回base64 JPEG。用于视觉验证页面状态（如'搜索结果是否出现'）。",
                 "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_press_key",
+                "description": "在浏览器页面中按键盘按键。如'Enter'提交搜索、'Escape'关闭弹窗、'Tab'切换焦点。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keys": {
+                            "type": "string",
+                            "description": "按键名，如'Enter'、'Escape'、'Tab'、'PageDown'",
+                        }
+                    },
+                    "required": ["keys"],
+                },
             },
         },
     ]
@@ -787,6 +805,11 @@ class ExecutionAgent:
         elif tool_name == "browser_screenshot":
             self._ensure_browser_started()
             return self._run_async(self.browser.screenshot())
+        elif tool_name == "browser_press_key":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.press_key(tool_args.get("keys", "Enter"))
+            )
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 
