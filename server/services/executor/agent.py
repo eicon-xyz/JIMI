@@ -57,7 +57,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 找不到时，先 wait(2) 再重新 get_screen_info
 
 ## 验证标准
-- type_text 后验证：再次 get_screen_info，目标元素的 content 应包含或反映输入文本
+- type_text 成功后（返回 success=true），这本身就是验证——不需要再次 get_screen_info
 - click 后验证：观察屏幕元素列表是否有变化（新元素出现、元素消失、content 变化）
 - 如果连续 2 次 get_screen_info 结果完全相同，说明上一步操作可能无效，应尝试替代方案
 - 桌面图标、文件操作使用 double_click 而非 click
