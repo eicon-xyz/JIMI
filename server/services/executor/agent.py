@@ -274,31 +274,7 @@ class ExecutionAgent:
     # ── Tool implementations ──
 
     def _do_get_screen_info(self) -> dict:
-        """Screenshot → OmniParser → rebuild element_map.
-
-        Returns only slim elements (max 30, {id, content}) in the tool-result
-        payload so LLM context stays small. The full element_map is still
-        available internally for click/type_text resolution.
-
-        Screen-call count guard: if this is the 2nd+ call and the last call's
-        elements look the same (>80% id overlap), add a strong warning to the
-        result — the LLM should stop re-scanning and make a decision.
-        """        # Alt+Tab to focus the most recent app window.
-        # Use pydirectinput for physical keyboard simulation (pyautogui
-        # hotkeys may not reach the desktop in SSH/tmux sessions).
-        try:
-            import pydirectinput as pdi
-            pdi.keyDown("alt")
-            time.sleep(0.05)
-            pdi.keyDown("tab")
-            time.sleep(0.1)
-            pdi.keyUp("tab")
-            pdi.keyUp("alt")
-            time.sleep(0.5)
-        except ImportError:
-            pyautogui.hotkey("alt", "tab")
-            time.sleep(0.5)
-
+        """Screenshot → OmniParser → rebuild element_map."""
         try:
             from core.screen_capture import capture_to_base64
             image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
