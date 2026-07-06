@@ -198,52 +198,69 @@ class BrowserController:
         }
 
     async def click(self, selector: str) -> dict:
-        """Click an element by CSS selector or text.
+        """Click an element by CSS selector or text, with retry for detached elements.
 
         Supports:
             - CSS: "#id", ".class", "button", "a[href='/login']"
             - Text: "text=登录" or ":text('Login')"
             - Role: "button[name='submit']"
+
+        Retries once after 500ms if the element is detached between snapshot and click.
         """
         self._ensure_started()
-        try:
-            elem = self._page.locator(selector).first
-            tag = await elem.evaluate("el => el.tagName.toLowerCase()")
-            text = await elem.text_content() or ""
-            text = text.strip()[:80]
-            await elem.click(timeout=10_000)
-            label = f"<{tag}>" + (f" '{text}'" if text else "")
-            logger.info("Browser clicked: %s", label)
-            return {
-                "success": True,
-                "selector": selector,
-                "tag": tag,
-                "text": text,
-                "action_summary": f"clicked {label}",
-            }
-        except Exception as e:
-            return self._error("click", selector, e)
+        last_error = None
+        for attempt in range(2):
+            try:
+                elem = self._page.locator(selector).first
+                tag = await elem.evaluate("el => el.tagName.toLowerCase()")
+                text = await elem.text_content() or ""
+                text = text.strip()[:80]
+                await elem.click(timeout=10_000)
+                label = f"<{tag}>" + (f" '{text}'" if text else "")
+                logger.info("Browser clicked: %s (attempt %d)", label, attempt + 1)
+                return {
+                    "success": True,
+                    "selector": selector,
+                    "tag": tag,
+                    "text": text,
+                    "action_summary": f"clicked {label}",
+                }
+            except Exception as e:
+                last_error = e
+                if attempt == 0:
+                    logger.debug("Click attempt 1 failed (%s), retrying after 500ms", e)
+                    await asyncio.sleep(0.5)
+                    continue
+        return self._error("click", selector, last_error)
 
     async def type(self, selector: str, text: str) -> dict:
-        """Type text into an input/textarea element.
+        """Type text into an input/textarea element, with retry for detached elements.
 
         Clears existing content first, then types.
+        Retries once after 500ms if the element is detached between snapshot and type.
         """
         self._ensure_started()
-        try:
-            elem = self._page.locator(selector).first
-            await elem.click(timeout=5_000)   # focus
-            await elem.fill("")               # clear
-            await elem.type(text, delay=30)   # human-like typing
-            logger.info("Browser typed %d chars into '%s'", len(text), selector)
-            return {
-                "success": True,
-                "selector": selector,
-                "text": text,
-                "action_summary": f"typed '{text}' into '{selector}'",
-            }
-        except Exception as e:
-            return self._error("type", selector, e)
+        last_error = None
+        for attempt in range(2):
+            try:
+                elem = self._page.locator(selector).first
+                await elem.click(timeout=5_000)   # focus
+                await elem.fill("")               # clear
+                await elem.type(text, delay=30)   # human-like typing
+                logger.info("Browser typed %d chars into '%s' (attempt %d)", len(text), selector, attempt + 1)
+                return {
+                    "success": True,
+                    "selector": selector,
+                    "text": text,
+                    "action_summary": f"typed '{text}' into '{selector}'",
+                }
+            except Exception as e:
+                last_error = e
+                if attempt == 0:
+                    logger.debug("Type attempt 1 failed (%s), retrying after 500ms", e)
+                    await asyncio.sleep(0.5)
+                    continue
+        return self._error("type", selector, last_error)
 
     async def get_snapshot(self) -> dict:
         """Return a compact DOM snapshot listing interactive elements.
@@ -253,11 +270,18 @@ class BrowserController:
         Capped at MAX_SNAPSHOT_ELEMENTS to prevent token explosion.
         """
         self._ensure_started()
-        title = await self._page.title()
-        url = self._page.url
+        try:
+            title = await self._page.title()
+        except Exception:
+            title = "(page closed)"
+        try:
+            url = self._page.url
+        except Exception:
+            url = "(unavailable)"
 
         # Extract interactive elements via JS
-        elements = await self._page.evaluate("""() => {
+        try:
+            elements = await self._page.evaluate("""() => {
             const interactive = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="textbox"],[role="combobox"],[role="searchbox"],[role="checkbox"],[role="radio"],[contenteditable="true"],[onclick]';
             const els = document.querySelectorAll(interactive);
             const results = [];
@@ -280,11 +304,12 @@ class BrowserController:
                 // Only include elements with visible text or special attributes
                 if (!text && tag !== 'input' && tag !== 'textarea' && tag !== 'select' && tag !== 'button') continue;
 
-                // Build a reasonable selector
+                // Build a CSS-escaped selector
+                const cssEscape = (s) => CSS.escape(s);
                 let sel = tag;
-                if (el.id) { sel = '#' + el.id; }
+                if (el.id) { sel = '#' + cssEscape(el.id); }
                 else if (el.className && typeof el.className === 'string') {
-                    const cls = el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+                    const cls = el.className.trim().split(/\\s+/).slice(0, 2).map(cssEscape).join('.');
                     if (cls) sel = tag + '.' + cls;
                 }
 
@@ -300,6 +325,17 @@ class BrowserController:
             }
             return results;
         }""" % (MAX_SNAPSHOT_ELEMENTS, MAX_TEXT_LENGTH, MAX_TEXT_LENGTH))
+        except Exception as e:
+            logger.warning("Snapshot evaluate failed: %s", e)
+            return {
+                "success": False,
+                "title": title,
+                "url": url,
+                "elements": [],
+                "snapshot_text": f"## Browser Snapshot\nTitle: {title}\nURL: {url}\nError: page may have been closed or navigated",
+                "error": str(e)[:200],
+                "action_summary": "snapshot failed: page unavailable",
+            }
 
         # Build compact text representation
         lines = [
