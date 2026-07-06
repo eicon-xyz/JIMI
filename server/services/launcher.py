@@ -105,6 +105,12 @@ def launch_app(app_name: str) -> dict:
     time.sleep(0.2)
 
     logger.info(f"Launched '{app_name}' successfully")
+
+    # Wait for the app window to fully render before returning control.
+    # Some apps (especially Electron-based ones) have rendering delays of
+    # 500ms-1s; LLM taking a screenshot immediately may see a blank window.
+    time.sleep(3)
+
     return {"success": True, "app_name": app_name, "method": "win_search_enter"}
 
 

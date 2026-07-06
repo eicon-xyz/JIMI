@@ -471,6 +471,8 @@ class ExecutionAgent:
         step.status = "executing"
         self.clear_element_map()
 
+        print(f'\n======== 🚀 STARTING STEP {step.step_index}: {step.instruction} ========\n')
+
         current_step_info = {"index": step.step_index, "instruction": step.instruction}
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
 
@@ -526,6 +528,7 @@ class ExecutionAgent:
                 # In auto mode, LLM may respond with text instead of a tool call.
                 # Reject text-only responses that don't advance the task.
                 if raw and raw.strip():
+                    print(f'⚠️  LLM returned text-only response (no tool call): {raw[:300]}')
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({
                         "role": "user",
