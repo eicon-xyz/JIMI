@@ -274,11 +274,21 @@ class ExecutionAgent:
 
     def _do_get_screen_info(self) -> dict:
         """Screenshot → OmniParser → rebuild element_map."""
-        # Alt+Tab to focus the most recent app window before capturing
-        # This ensures the screenshot doesn't show this terminal/IDE
-        import pyautogui as pag
-        pag.hotkey("alt", "tab")
-        time.sleep(0.3)
+        # Alt+Tab to focus the most recent app window.
+        # Use pydirectinput for physical keyboard simulation (pyautogui
+        # hotkeys may not reach the desktop in SSH/tmux sessions).
+        try:
+            import pydirectinput as pdi
+            pdi.keyDown("alt")
+            time.sleep(0.05)
+            pdi.keyDown("tab")
+            time.sleep(0.1)
+            pdi.keyUp("tab")
+            pdi.keyUp("alt")
+            time.sleep(0.5)
+        except ImportError:
+            pyautogui.hotkey("alt", "tab")
+            time.sleep(0.5)
 
         try:
             from core.screen_capture import capture_to_base64
