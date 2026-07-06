@@ -292,7 +292,6 @@ class ExecutionAgent:
             "success": True,
             "elements": self.screen_elements,
             "element_count": len(self.screen_elements),
-            "annotated_image": parse_result.annotated_image or image_b64,
         }
 
     def _do_launch_app(self, app_name: str) -> dict:

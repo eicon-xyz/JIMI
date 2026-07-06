@@ -114,6 +114,9 @@ def run_plan_agent_loop(
     previous_steps: list[dict] = []
     all_done = True
 
+    from server.config import settings
+    retry_limit = getattr(settings, "STEP_RETRY_LIMIT", 1)
+
     for step_dict in steps:
         if cancel_event.is_set():
             _push_event(task_id, "task_cancelled", {})
@@ -164,41 +167,45 @@ def run_plan_agent_loop(
                 "action_summary": result.action_summary or "completed",
             })
         else:
-            # Retry once
-            logger.warning(f"Step {step_idx} failed, retrying once...")
-            _push_event(task_id, "log", {
-                "level": "warn",
-                "message": f"步骤 {step_idx} 失败，重试中... ({result.action_summary})",
-            })
-            try:
-                agent.clear_element_map()
-                retry_result = agent.execute_step(
-                    step=es,
-                    goal=goal,
-                    previous_steps=previous_steps,
-                    cancel_event=cancel_event,
-                )
-                if retry_result.status == "done":
-                    _push_event(task_id, "step_done", {
-                        "step_index": step_idx,
-                        "action_summary": retry_result.action_summary or "",
-                    })
-                    previous_steps.append({
-                        "index": step_idx,
-                        "instruction": instruction,
-                        "status": "done",
-                        "action_summary": retry_result.action_summary or "completed (retry)",
-                    })
-                    continue
-            except Exception as e:
-                logger.exception(f"Step {step_idx} retry crashed")
+            # Retry loop (STEP_RETRY_LIMIT times)
+            retry_success = False
+            for retry_attempt in range(retry_limit):
+                logger.warning(f"Step {step_idx} failed, retry {retry_attempt+1}/{retry_limit}...")
+                _push_event(task_id, "log", {
+                    "level": "warn",
+                    "message": f"步骤 {step_idx} 失败，重试 {retry_attempt+1}/{retry_limit}...",
+                })
+                try:
+                    agent.clear_element_map()
+                    retry_result = agent.execute_step(
+                        step=es,
+                        goal=goal,
+                        previous_steps=previous_steps,
+                        cancel_event=cancel_event,
+                    )
+                    if retry_result.status == "done":
+                        _push_event(task_id, "step_done", {
+                            "step_index": step_idx,
+                            "action_summary": retry_result.action_summary or "",
+                        })
+                        previous_steps.append({
+                            "index": step_idx,
+                            "instruction": instruction,
+                            "status": "done",
+                            "action_summary": retry_result.action_summary or "completed (retry)",
+                        })
+                        retry_success = True
+                        break
+                except Exception as e:
+                    logger.exception(f"Step {step_idx} retry {retry_attempt+1} crashed")
 
-            _push_event(task_id, "step_failed", {
-                "step_index": step_idx,
-                "reason": result.action_summary or "step failed after retry",
-            })
-            all_done = False
-            break
+            if not retry_success:
+                _push_event(task_id, "step_failed", {
+                    "step_index": step_idx,
+                    "reason": result.action_summary or "step failed after retries",
+                })
+                all_done = False
+                break
 
     if all_done:
         _push_event(task_id, "task_done", {
