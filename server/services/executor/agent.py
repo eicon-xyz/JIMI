@@ -529,9 +529,14 @@ class ExecutionAgent:
 
             # Add assistant message + tool result to conversation using the original
             # assistant message (with real tool_calls) so OpenAI API can match the
-            # tool_call_id in the subsequent role:tool message
-            messages.append(assistant_msg if assistant_msg else {"role": "assistant", "content": raw})
-            tool_call_id = f"call_{round_num}"
+            # tool_call_id in the subsequent role:tool message.
+            # The tool_call_id MUST match the id in the assistant's tool_calls array.
+            if assistant_msg and assistant_msg.get("tool_calls"):
+                tool_call_id = assistant_msg["tool_calls"][0]["id"]
+                messages.append(assistant_msg)
+            else:
+                tool_call_id = f"call_{round_num}"
+                messages.append({"role": "assistant", "content": raw})
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
