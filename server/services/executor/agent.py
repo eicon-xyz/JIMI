@@ -268,6 +268,7 @@ class ExecutionAgent:
     def clear_element_map(self):
         self.element_map = {}
         self.screen_elements = []
+        self._get_screen_call_count = 0
 
     # ── Tool implementations ──
 
@@ -296,8 +297,11 @@ class ExecutionAgent:
 
         result = {
             "success": True,
-            "elements": self.screen_elements,
+            "elements": [{"id": el["id"], "content": el["content"]}
+                         for el in self.screen_elements
+                         if el.get("content") and el["content"].strip()][:30],
             "element_count": len(self.screen_elements),
+            "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
         }
         # Warn LLM after 3+ screen calls to prevent endless re-scanning
         self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
@@ -412,7 +416,8 @@ class ExecutionAgent:
     def _do_scroll(self, direction: str, amount: int = 3) -> dict:
         amt = amount if direction == "up" else -amount
         pyautogui.scroll(amt)
-        return {"success": True, "direction": direction, "amount": amount}
+        return {"success": True, "direction": direction, "amount": amount,
+                "action_summary": f"scrolled {direction} x{amount}"}
 
     # ── Tool dispatcher ──
 
@@ -439,8 +444,9 @@ class ExecutionAgent:
                 tool_args.get("amount", 3),
             )
         elif tool_name == "wait":
-            time.sleep(float(tool_args.get("seconds", 1.0)))
-            return {"success": True, "waited": tool_args.get("seconds", 1.0)}
+            secs = float(tool_args.get("seconds", 1.0))
+            time.sleep(secs)
+            return {"success": True, "waited": secs, "action_summary": f"waited {secs}s"}
         elif tool_name == "mark_step_done":
             return {"__step_complete__": True, "success": True, "reason": tool_args.get("reason", "")}
         elif tool_name == "mark_step_failed":
@@ -470,8 +476,6 @@ class ExecutionAgent:
         """
         step.status = "executing"
         self.clear_element_map()
-
-        print(f'\n======== 🚀 STARTING STEP {step.step_index}: {step.instruction} ========\n')
 
         current_step_info = {"index": step.step_index, "instruction": step.instruction}
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
@@ -528,7 +532,7 @@ class ExecutionAgent:
                 # In auto mode, LLM may respond with text instead of a tool call.
                 # Reject text-only responses that don't advance the task.
                 if raw and raw.strip():
-                    print(f'⚠️  LLM returned text-only response (no tool call): {raw[:300]}')
+                    logger.warning(f"LLM returned text-only response (no tool call): {raw[:300]}")
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({
                         "role": "user",
@@ -632,11 +636,23 @@ class ExecutionAgent:
                 try:
                     parsed = extract_json_object(content)
                     if "name" in parsed and "arguments" in parsed:
+                        synthetic_id = f"call_from_content"
                         return json.dumps({
                             "__tool_call__": True,
                             "name": parsed["name"],
                             "arguments": parsed["arguments"],
-                        }), None
+                        }), {  # synthetic assistant_msg with valid tool_calls
+                            "role": "assistant",
+                            "content": content,
+                            "tool_calls": [{
+                                "id": synthetic_id,
+                                "type": "function",
+                                "function": {
+                                    "name": parsed["name"],
+                                    "arguments": json.dumps(parsed["arguments"], ensure_ascii=False),
+                                }
+                            }]
+                        }
                 except Exception:
                     pass
                 # Content present but not parseable as tool — return as raw for caller to handle

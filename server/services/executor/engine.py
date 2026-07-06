@@ -46,8 +46,12 @@ def _is_cancelled(task_id: str) -> bool:
 
 def register_task(task_id: str) -> queue.Queue:
     """注册新任务，返回其事件队列供 /stream 端点消费。"""
-    q: queue.Queue = queue.Queue()
     with _queues_lock:
+        existing = _event_queues.get(task_id)
+        if existing is not None:
+            logger.info(f"[engine] task {task_id} already registered, reusing queue")
+            return existing
+        q: queue.Queue = queue.Queue()
         _event_queues[task_id] = q
     with _cancel_lock:
         _cancel_flags[task_id] = False
@@ -170,6 +174,10 @@ def run_plan_agent_loop(
             # Retry loop (STEP_RETRY_LIMIT times)
             retry_success = False
             for retry_attempt in range(retry_limit):
+                if cancel_event and cancel_event.is_set():
+                    _push_event(task_id, "task_cancelled", {})
+                    all_done = False  # signal task was cancelled
+                    return  # exit the thread, task cancelled
                 logger.warning(f"Step {step_idx} failed, retry {retry_attempt+1}/{retry_limit}...")
                 _push_event(task_id, "log", {
                     "level": "warn",

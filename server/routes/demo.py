@@ -149,9 +149,10 @@ async def execute_task(
     task_store.create(response, request.query)
     TaskRepository.create_from_response(response, request.query)
 
-    # 3. Register task FIRST to create the cancel Event, then get it
+    # 3. Register task to create the cancel Event (deduplicated — no-op if already exists)
+    #    Then get the cancel event for the background thread
     from server.services.executor.engine import register_task as engine_register, get_cancel_event
-    engine_register(response.task_id)  # creates _cancel_events[task_id]
+    engine_register(response.task_id)  # idempotent: reuses existing queue if already registered
     cancel_event = get_cancel_event(response.task_id)
 
     # 4. Convert steps to dicts for engine
