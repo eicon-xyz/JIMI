@@ -274,6 +274,12 @@ class ExecutionAgent:
 
     def _do_get_screen_info(self) -> dict:
         """Screenshot → OmniParser → rebuild element_map."""
+        # Alt+Tab to focus the most recent app window before capturing
+        # This ensures the screenshot doesn't show this terminal/IDE
+        import pyautogui as pag
+        pag.hotkey("alt", "tab")
+        time.sleep(0.3)
+
         try:
             from core.screen_capture import capture_to_base64
             image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")

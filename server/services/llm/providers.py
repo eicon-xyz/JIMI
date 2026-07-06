@@ -272,6 +272,12 @@ def _get_provider_config(provider: str | None = None) -> dict:
             "base_url": getattr(settings, 'GLM_BASE_URL', '') or "https://api.siliconflow.cn/v1",
             "model": getattr(settings, 'GLM_MODEL', '') or "THUDM/glm-4-9b-chat",
         },
+        "deepseek": {
+            "provider": "deepseek",
+            "api_key": getattr(settings, 'DEEPSEEK_API_KEY', '') or settings.LLM_API_KEY,
+            "base_url": getattr(settings, 'DEEPSEEK_BASE_URL', '') or "https://api.deepseek.com",
+            "model": getattr(settings, 'DEEPSEEK_MODEL', '') or "deepseek-chat",
+        },
     }
 
     if p in provider_map:
