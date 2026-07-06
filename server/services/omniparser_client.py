@@ -193,12 +193,15 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     return parse_screenshot_full(image_base64).elements
 
 
-def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
+def parse_screenshot_full(image_base64: Optional[str], compute_spatial: bool = True) -> ParseResult:
     """
     Call the local OmniParser V2 API and return a full ParseResult with metadata.
 
     Args:
         image_base64: Base64 image, with or without a data URI prefix.
+        compute_spatial: If True, compute spatial relations (left/right/top/bottom).
+                         Set to False for performance-sensitive callers that don't
+                         need spatial relations (e.g., repeated calls in agent loop).
 
     Returns:
         ParseResult with elements, annotated_image, reference_resolution, detection_meta.
@@ -305,7 +308,8 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
         )
 
     # ── Compute spatial relations (left/right/top/bottom neighbors) ──
-    _compute_spatial_relations(elements)
+    if compute_spatial:
+        _compute_spatial_relations(elements)
 
     # ── 提取 SoM 标注图 ──
     annotated_image = None

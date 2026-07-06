@@ -125,17 +125,37 @@ def process_query(
         needs_clarification=confidence < 0.80,
     )
 
-    # 2. Planning Agent — text-only structured plan
+    # 2. Planning Agent + OmniParser run in parallel (they are independent)
+    import concurrent.futures
     from server.services.planning.planner import plan_steps, PlanningResult
-    try:
-        plan_result: PlanningResult = plan_steps(query)
-    except Exception as e:
-        logger.error(f"Planning Agent failed: {e}")
-        # Fallback: single-step plan = the whole query
-        plan_result = PlanningResult(
-            goal=query,
-            steps=[PlanningStep(step_index=1, instruction=query)],
-        )
+
+    plan_result = None
+
+    def _call_planner():
+        nonlocal plan_result
+        try:
+            plan_result = plan_steps(query)
+        except Exception as e:
+            logger.error(f"Planning Agent failed: {e}")
+            plan_result = PlanningResult(
+                goal=query,
+                steps=[PlanningStep(step_index=1, instruction=query)],
+            )
+
+    planner_future = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        planner_future = executor.submit(_call_planner)
+        # While Planning Agent runs, start OmniParser in main thread
+        if image_base64:
+            try:
+                from server.services.omniparser_client import parse_screenshot_full
+                parse_result_temp = parse_screenshot_full(image_base64)
+                ui_elements = parse_result_temp.elements
+                annotated_image = parse_result_temp.annotated_image or image_base64
+                detection_meta.update(parse_result_temp.detection_meta or {})
+            except Exception as e:
+                logger.error(f"OmniParser initial scan failed: {e}")
+        planner_future.result(timeout=30)
 
     goal = plan_result.goal
     planning_steps = plan_result.steps
@@ -149,21 +169,12 @@ def process_query(
             status="pending",
         ))
 
-    # 4. Take initial screenshot for display (OmniParser SoM)
-    ui_elements: List[UIElement] = []
-    annotated_image: Optional[str] = image_base64
-    detection_meta: dict = {"backend": "omniparser", "route": "L3"}
-
-    if image_base64:
-        try:
-            from server.services.omniparser_client import parse_screenshot_full
-            parse_result = parse_screenshot_full(image_base64)
-            if parse_result.elements:
-                ui_elements = parse_result.elements
-                annotated_image = parse_result.annotated_image or image_base64
-                detection_meta.update(parse_result.detection_meta or {})
-        except Exception as e:
-            logger.error(f"OmniParser initial scan failed: {e}")
+    # 4. Take initial screenshot for display (OmniParser SoM) — already done in parallel above
+    # (ui_elements, annotated_image, detection_meta populated during Planning Agent call)
+    if parse_result_temp is None and not annotated_image:
+        ui_elements: List[UIElement] = []
+        annotated_image: Optional[str] = image_base64
+        detection_meta: dict = {"backend": "omniparser", "route": "L3"}
 
     # 5. Build response
     blueprint = Blueprint(

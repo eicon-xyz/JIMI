@@ -284,7 +284,7 @@ class ExecutionAgent:
                 pil.save(buf, format="JPEG", quality=70)
                 image_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
-        parse_result = parse_screenshot_full(image_b64)
+        parse_result = parse_screenshot_full(image_b64, compute_spatial=False)
         self.element_map = {e.element_id: e for e in parse_result.elements}
         self.screen_elements = _filter_elements_for_llm(parse_result.elements)
 
