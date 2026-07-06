@@ -275,6 +275,14 @@ class ExecutionAgent:
 
     def _do_get_screen_info(self) -> dict:
         """Screenshot → OmniParser → rebuild element_map."""
+        # Wake up potentially frozen RDP/remote GUI session before screenshot
+        try:
+            import pyautogui
+            pyautogui.press("esc")
+            time.sleep(0.2)
+        except Exception:
+            pass
+
         try:
             from core.screen_capture import capture_to_base64
             image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")

@@ -111,7 +111,97 @@ def launch_app(app_name: str) -> dict:
     # 500ms-1s; LLM taking a screenshot immediately may see a blank window.
     time.sleep(3)
 
+    # Force foreground: find the launched app window and bring it to front.
+    # This is critical for RDP/remote sessions where the app may not auto-focus.
+    _force_window_foreground(app_name)
+
     return {"success": True, "app_name": app_name, "method": "win_search_enter"}
+
+
+def _force_window_foreground(app_name: str) -> bool:
+    """Find the app window by fuzzy title match and force it to the foreground.
+
+    Uses pygetwindow for window enumeration and activation. Falls back to
+    pywinauto if pygetwindow's activate() fails (e.g. in RDP sessions).
+
+    Returns True if the window was found and activated.
+    """
+    try:
+        import pygetwindow as gw
+    except ImportError:
+        logger.warning("pygetwindow not installed — cannot force window foreground")
+        return False
+
+    # Give the window a moment to appear
+    time.sleep(0.5)
+
+    # Collect candidate windows: exact title match first, then fuzzy
+    candidates = gw.getWindowsWithTitle(app_name)
+    if not candidates:
+        # Fuzzy match: any window whose title contains any word from app_name
+        app_words = app_name.lower().split()
+        for win in gw.getAllWindows():
+            title = (win.title or "").lower()
+            if not title or title.startswith("_"):
+                continue
+            if any(word in title for word in app_words):
+                candidates.append(win)
+
+    if not candidates:
+        logger.warning(f"_force_window_foreground: no window found matching '{app_name}'")
+        return False
+
+    # Pick the largest visible window (most likely the main app window)
+    best = None
+    best_area = 0
+    for w in candidates:
+        area = w.width * w.height
+        if area > best_area and not w.title.startswith("_"):
+            best = w
+            best_area = area
+
+    if best is None:
+        return False
+
+    logger.info(f"_force_window_foreground: activating '{best.title}' ({best.width}x{best.height})")
+
+    try:
+        # Try restore + activate (restore un-minimizes if needed)
+        best.restore()
+        time.sleep(0.2)
+        best.activate()
+        time.sleep(0.3)
+
+        if best.isActive:
+            logger.info(f"_force_window_foreground: '{best.title}' is now active")
+            return True
+
+        # Fallback: pygetwindow activate failed — try pywinauto
+        logger.warning("pygetwindow activate failed, trying pywinauto fallback")
+        try:
+            from pywinauto import Desktop
+            dlg = Desktop(backend="win32").window(title=best.title)
+            dlg.set_focus()
+            time.sleep(0.2)
+            logger.info(f"_force_window_foreground: pywinauto set_focus succeeded on '{best.title}'")
+            return True
+        except ImportError:
+            logger.warning("pywinauto not installed — window may not be in foreground")
+        except Exception as e:
+            logger.warning(f"pywinauto fallback also failed: {e}")
+
+        return best.isActive
+    except Exception as e:
+        logger.warning(f"_force_window_foreground error: {e}")
+        # Last resort: try clicking the center of the window
+        try:
+            import pyautogui
+            cx, cy = best.left + best.width // 2, best.top + best.height // 2
+            pyautogui.click(cx, cy)
+            time.sleep(0.2)
+        except Exception:
+            pass
+        return False
 
 
 def _paste_text(text: str) -> None:
