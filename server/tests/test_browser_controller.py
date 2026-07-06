@@ -312,3 +312,15 @@ class TestEnsureStarted:
             await bc.click("#btn")
         with pytest.raises(RuntimeError, match="not started"):
             await bc.get_snapshot()
+
+
+# ── Screenshot ─────────────────────────────────────────────────────────
+
+class TestScreenshot:
+    @pytest.mark.asyncio
+    async def test_screenshot_returns_base64(self, controller, mock_page):
+        mock_page.screenshot = AsyncMock(return_value=b'\xff\xd8\xff\xe0\x00\x10JFIF')
+        result = await controller.screenshot()
+        assert result["success"] is True
+        assert result["image_b64"].startswith("data:image/jpeg;base64,")
+        assert len(result["image_b64"]) > 30
