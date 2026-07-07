@@ -195,12 +195,12 @@ class Memory(Base):
     summary = Column(String(500), nullable=False)
     embedding = Column("embedding", LargeBinary, nullable=True)
     confidence = Column(Float, default=1.0)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, index=True)
     event_count = Column(Integer, default=1)
     resolved_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     __table_args__ = (
-        Index("ix_memories_user_type", "user_id", "memory_type"),
+        Index("ix_memories_user_active_type", "user_id", "is_active", "memory_type"),
     )
