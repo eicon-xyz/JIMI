@@ -27,6 +27,7 @@ def mock_page():
     locator.first = locator
     locator.click = AsyncMock()
     locator.fill = AsyncMock()
+    locator.focus = AsyncMock()
     locator.type = AsyncMock()
     locator.text_content = AsyncMock(return_value="Click Me")
     locator.evaluate = AsyncMock(return_value="button")
@@ -198,14 +199,16 @@ class TestType:
         assert result["success"] is True
         assert result["text"] == "hello"
         locator = mock_page.locator.return_value
-        locator.click.assert_called_once()  # focus
-        locator.fill.assert_called_once_with("")  # clear
-        locator.type.assert_called_once_with("hello", delay=30)
+        locator.evaluate.assert_called_once()  # JS value set
+        # Verify it dispatched input/change events
+        call_args = locator.evaluate.call_args[0][0]
+        assert "el.value = 'hello'" in call_args
+        assert "dispatchEvent" in call_args
 
     @pytest.mark.asyncio
     async def test_type_not_found(self, controller, mock_page):
         locator = mock_page.locator.return_value
-        locator.click = AsyncMock(side_effect=Exception("No such element"))
+        locator.evaluate = AsyncMock(side_effect=Exception("No such element"))
         result = await controller.type("#missing", "text")
         assert result["success"] is False
 

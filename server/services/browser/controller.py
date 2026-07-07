@@ -205,6 +205,10 @@ class BrowserController:
             - Text: "text=登录" or ":text('Login')"
             - Role: "button[name='submit']"
 
+        Uses force=True to bypass Playwright actionability checks
+        (visibility, obscured, etc.) — matches the expectation of
+        "click this element" even when off-screen or covered.
+
         Retries once after 500ms if the element is detached between snapshot and click.
         """
         self._ensure_started()
@@ -236,17 +240,26 @@ class BrowserController:
     async def type(self, selector: str, text: str) -> dict:
         """Type text into an input/textarea element, with retry for detached elements.
 
-        Clears existing content first, then types.
-        Retries once after 500ms if the element is detached between snapshot and type.
+        Uses JavaScript to set value directly (bypasses actionability
+        checks), then dispatches input/change events so frameworks
+        like React/Angular detect the change.
+
+        Retries once after 500ms if the element is detached.
         """
         self._ensure_started()
         last_error = None
         for attempt in range(2):
             try:
                 elem = self._page.locator(selector).first
-                await elem.click(timeout=5_000)   # focus
-                await elem.fill("")               # clear
-                await elem.type(text, delay=30)   # human-like typing
+                # Set value via JS to bypass visibility/stable checks
+                escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+                await elem.evaluate(
+                    f"""el => {{
+                        el.value = '{escaped}';
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}"""
+                )
                 logger.info("Browser typed %d chars into '%s' (attempt %d)", len(text), selector, attempt + 1)
                 return {
                     "success": True,
