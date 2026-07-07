@@ -39,6 +39,10 @@ async def browser():
     not _try_import_playwright(),
     reason="playwright not installed",
 )
+@pytest.mark.skipif(
+    not _chromium_installed(),
+    reason="chromium browser not installed (run: playwright install chromium)",
+)
 class TestBrowserE2E:
     """Real-browser round-trip tests."""
 
