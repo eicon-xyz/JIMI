@@ -215,7 +215,7 @@ class BrowserController:
                 tag = await elem.evaluate("el => el.tagName.toLowerCase()")
                 text = await elem.text_content() or ""
                 text = text.strip()[:80]
-                await elem.click(timeout=10_000)
+                await elem.click(timeout=10_000, force=True)
                 label = f"<{tag}>" + (f" '{text}'" if text else "")
                 logger.info("Browser clicked: %s (attempt %d)", label, attempt + 1)
                 return {
