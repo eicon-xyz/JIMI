@@ -26,6 +26,7 @@ from server.services.omniparser_client import (
     _filter_elements_for_llm,
     parse_screenshot_full,
 )
+from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -849,7 +850,21 @@ class ExecutionAgent:
 
         # Build the conversation once: system prompt + task context.
         # Tool call history accumulates across rounds below.
-        messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
+        # Build system prompt with user memory (if available)
+        system_content = EXECUTION_SYSTEM_PROMPT
+        try:
+            retriever = get_retriever()
+            user_memory = retriever.retrieve(
+                user_id="default",
+                query=goal,
+                element_count=None,  # Element count not available at this point
+            )
+            if user_memory:
+                system_content = EXECUTION_SYSTEM_PROMPT + "\n\n" + user_memory
+        except Exception:
+            pass  # Memory retrieval failure should not block execution
+
+        messages = [{"role": "system", "content": system_content}]
         # Add a hint: if the step is just about launching an app, the LLM should
         # call launch_app then mark_step_done directly, not verify via get_screen_info
         if (
