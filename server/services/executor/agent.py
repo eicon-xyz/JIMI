@@ -107,9 +107,10 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 5. 步骤完成后，如果后续不再需要浏览器，调用 browser_close 释放资源。
 
 ### 视觉验证
-- 当需要判断页面是否显示了预期内容时（如搜索结果、登录状态），使用 browser_screenshot
-- browser_screenshot 返回的是 JPEG 图片，你可以"看到"页面，但不需要 OmniParser
-- snapshot 用于定位元素 + 点击，screenshot 用于视觉确认"""
+- 当需要判断页面是否显示了预期内容时，使用 browser_screenshot
+- browser_screenshot 返回的是 JPEG 图片的 base64 编码，前端可以展示截图
+- snapshot 用于定位元素 + 点击；screenshot 的 image_b64 字段可供前端渲染展示
+- 对于结构验证（如'搜索结果是否出现'），优先使用 browser_snapshot 查看元素列表"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -800,7 +801,8 @@ class ExecutionAgent:
                 )
             )
         elif tool_name == "browser_close":
-            self._run_async(self.browser.close())
+            if self._browser is not None and self._browser.is_started:
+                self._run_async(self.browser.close())
             return {"success": True, "action_summary": "browser closed"}
         elif tool_name == "browser_screenshot":
             self._ensure_browser_started()
