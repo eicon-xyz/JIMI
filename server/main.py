@@ -32,6 +32,12 @@ app = FastAPI(
 def on_startup():
     """初始化数据库表"""
     init_db()
+    # Pre-load memory cache for fast retrieval
+    try:
+        from server.services.memory.retriever import get_retriever
+        get_retriever().load_cache()
+    except Exception:
+        pass  # Memory system failure should not block app startup
 
 
 # ────────────────────────── 中间件 ──────────────────────────
