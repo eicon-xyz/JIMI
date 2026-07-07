@@ -13,8 +13,14 @@ pytestmark = pytest.mark.e2e
 
 def _chromium_installed():
     """Check if Playwright Chromium binary exists."""
-    import shutil
-    return shutil.which("chromium") is not None or shutil.which("google-chrome") is not None
+    import importlib
+    import os
+    try:
+        mod = importlib.import_module("playwright.sync_api")
+        with mod.sync_playwright() as p:
+            return os.path.exists(p.chromium.executable_path)
+    except Exception:
+        return False
 
 
 def _try_import_playwright():
