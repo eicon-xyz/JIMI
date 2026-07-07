@@ -25,7 +25,7 @@ def check_and_merge(
     category: Optional[str],
     memory_type: str,
     trigger_query: str,
-    embedding: np.ndarray,
+    embedding: Optional[np.ndarray],
 ) -> Optional[str]:
     """Check if a similar active memory already exists for this user+category.
 
@@ -35,6 +35,10 @@ def check_and_merge(
     Returns:
         memory_id of the created memory, or None on unexpected error.
     """
+    if embedding is None:
+        logger.warning("Embedding is None — skipping memory insert")
+        return None
+
     if category is None:
         # No category — no dedup, just insert
         return _insert(user_id, memory_type, trigger_query, summary, embedding, category)

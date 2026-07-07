@@ -145,7 +145,11 @@ class MemoryRetriever:
         # Encode query
         query_vec = encode(query)
         if query_vec is None:
-            return ""
+            # Embedding model unavailable — fall back to recent memories
+            logger.info("Embedding model unavailable, using fallback retrieval (recent first)")
+            recent = entries[-2:] if len(entries) >= 2 else entries
+            budget = MAX_TOKEN_BUDGET if element_count is None or element_count <= COMPLEX_SCREEN_ELEMENT_THRESHOLD else COMPLEX_SCREEN_TOKEN_BUDGET
+            return self._format_result(recent, budget)
 
         # Compute similarity for all cached entries
         scored = []
@@ -178,10 +182,15 @@ class MemoryRetriever:
         if is_complex:
             top2 = top2[:1]
 
-        # Build and truncate
+        return self._format_result([e for _, e in top2], budget)
+
+    # ── Formatting ──────────────────────────────────────────────────────
+
+    def _format_result(self, entries: List[MemoryCacheEntry], budget: int) -> str:
+        """Format memory entries into prompt-injection string, respecting token budget."""
         lines = ["[相关记忆]"]
         tokens_used = 0
-        for i, (sim, entry) in enumerate(top2, 1):
+        for i, entry in enumerate(entries, 1):
             line = f"{i}. {entry.summary}"
             est_tokens = _estimate_tokens(line)
             if tokens_used + est_tokens > budget:
