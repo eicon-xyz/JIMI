@@ -88,7 +88,7 @@ class MemoryExtractor:
             embedding=vec,
         )
         if memory_id:
-            self._retriever._update_cache(
+            self._retriever.add_to_cache(
                 user_id=user_id,
                 memory_id=memory_id,
                 memory_type="success_pattern",
@@ -138,7 +138,7 @@ class MemoryExtractor:
             embedding=vec,
         )
         if memory_id:
-            self._retriever._update_cache(
+            self._retriever.add_to_cache(
                 user_id=user_id,
                 memory_id=memory_id,
                 memory_type="failure_lesson",
@@ -232,7 +232,7 @@ class MemoryExtractor:
                     )
                     MemoryRepository.increment_resolved(f.memory_id)
                     # Also remove from cache
-                    self._retriever._remove_from_cache(user_id, f.memory_id)
+                    self._retriever.remove_from_cache(user_id, f.memory_id)
             except Exception as e:
                 logger.warning("Failed to compare with failure lesson %s: %s", f.memory_id, e)
                 continue

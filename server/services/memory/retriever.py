@@ -57,24 +57,25 @@ class MemoryRetriever:
 
             rows = db.query(Memory).filter(Memory.is_active == True).all()
             loaded = 0
-            for row in rows:
-                if row.embedding is None:
-                    continue
-                try:
-                    vec = from_blob(row.embedding)
-                except Exception:
-                    continue
-                entry = MemoryCacheEntry(
-                    memory_id=row.memory_id,
-                    user_id=row.user_id,
-                    memory_type=row.memory_type,
-                    category=row.category,
-                    trigger_query=row.trigger_query,
-                    summary=row.summary,
-                    embedding=vec,
-                )
-                self._memory_cache.setdefault(row.user_id, []).append(entry)
-                loaded += 1
+            with self._cache_lock:
+                for row in rows:
+                    if row.embedding is None:
+                        continue
+                    try:
+                        vec = from_blob(row.embedding)
+                    except Exception:
+                        continue
+                    entry = MemoryCacheEntry(
+                        memory_id=row.memory_id,
+                        user_id=row.user_id,
+                        memory_type=row.memory_type,
+                        category=row.category,
+                        trigger_query=row.trigger_query,
+                        summary=row.summary,
+                        embedding=vec,
+                    )
+                    self._memory_cache.setdefault(row.user_id, []).append(entry)
+                    loaded += 1
             logger.info("MemoryRetriever cache loaded: %d entries across %d users",
                         loaded, len(self._memory_cache))
         finally:
@@ -108,6 +109,23 @@ class MemoryRetriever:
                     user_entries[i] = entry
                     return
             user_entries.append(entry)
+
+    def add_to_cache(
+        self,
+        user_id: str,
+        memory_id: str,
+        memory_type: str,
+        category: Optional[str],
+        trigger_query: str,
+        summary: str,
+        embedding: np.ndarray,
+    ) -> None:
+        """Public API for cache sync after extraction."""
+        self._update_cache(user_id, memory_id, memory_type, category, trigger_query, summary, embedding)
+
+    def remove_from_cache(self, user_id: str, memory_id: str) -> None:
+        """Public API for cache removal after deactivation."""
+        self._remove_from_cache(user_id, memory_id)
 
     def _remove_from_cache(self, user_id: str, memory_id: str) -> None:
         """Thread-safe removal of a deactivated memory from cache."""
