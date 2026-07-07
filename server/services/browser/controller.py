@@ -43,14 +43,16 @@ class BrowserController:
         self._browser = None
         self._page = None
         self._started = False
+        self._context = None  # persistent browser context (when using user_data_dir)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    async def start(self, headless: bool = False) -> None:
+    async def start(self, headless: bool = False, user_data_dir: str | None = None) -> None:
         """Launch Chromium via Playwright.
 
         Args:
             headless: Run without UI. Default False so humans can watch.
+            user_data_dir: Persistent profile directory for cookies/login state.
         """
         if self._started:
             logger.info("BrowserController already started, reusing")
@@ -63,18 +65,38 @@ class BrowserController:
                 "playwright not installed. Run: pip install playwright && playwright install chromium"
             ) from exc
 
-        logger.info("Starting Playwright Chromium (headless=%s)...", headless)
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=headless,
-            args=[
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-extensions",
-                "--disable-background-networking",
-            ],
+        logger.info(
+            "Starting Playwright Chromium (headless=%s, profile=%s)...",
+            headless, user_data_dir or "(fresh)",
         )
-        self._page = await self._browser.new_page()
+        self._playwright = await async_playwright().start()
+
+        launch_args = [
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-extensions",
+            "--disable-background-networking",
+        ]
+
+        if user_data_dir:
+            from pathlib import Path
+            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+            self._context = await self._playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=headless,
+                args=launch_args,
+            )
+            self._browser = None
+            pages = self._context.pages
+            self._page = pages[0] if pages else await self._context.new_page()
+        else:
+            self._browser = await self._playwright.chromium.launch(
+                headless=headless,
+                args=launch_args,
+            )
+            self._context = None
+            self._page = await self._browser.new_page()
+
         self._started = True
         logger.info("BrowserController started successfully")
 
@@ -86,6 +108,13 @@ class BrowserController:
             except Exception as e:
                 logger.warning("Error closing browser: %s", e)
             self._browser = None
+
+        if self._context:
+            try:
+                await self._context.close()
+            except Exception as e:
+                logger.warning("Error closing context: %s", e)
+            self._context = None
 
         if self._playwright:
             try:
