@@ -43,6 +43,7 @@ class User(Base):
     username = Column(String(128), unique=True, nullable=False, index=True)
     password_hash = Column(String(256), nullable=False)  # bcrypt
     role = Column(String(16), nullable=False, default="user")  # user | admin
+    is_active = Column(Boolean, default=True)
     preferences = Column(JSON, default=dict)
     created_at = Column(DateTime, default=_now)
     last_login_at = Column(DateTime, nullable=True)
@@ -204,3 +205,17 @@ class Memory(Base):
     __table_args__ = (
         Index("ix_memories_user_active_type", "user_id", "is_active", "memory_type"),
     )
+
+
+# ────────────────────────── t_refresh_tokens ──────────────────────────
+
+
+class RefreshToken(Base):
+    __tablename__ = "t_refresh_tokens"
+
+    token_id = Column(String(64), primary_key=True, default=_new_uuid)
+    user_id = Column(String(64), ForeignKey("t_users.user_id"), nullable=False, index=True)
+    token_hash = Column(String(256), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True, default=None)
+    created_at = Column(DateTime, default=_now)
