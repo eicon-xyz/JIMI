@@ -96,8 +96,10 @@ APP_EXECUTABLE_MAP: dict[str, str] = {
     "Microsoft PowerPoint": "powerpnt.exe",
     "Outlook": "outlook.exe",
     "outlook": "outlook.exe",
-    "WPS": "wps.exe",
-    "WPS Office": "wps.exe",
+    "WPS": r"C:\Users\86178\AppData\Local\Kingsoft\WPS Office\12.1.0.26895\office6\wps.exe",
+    "WPS Office": r"C:\Users\86178\AppData\Local\Kingsoft\WPS Office\12.1.0.26895\office6\wps.exe",
+    "WPS文字": r"C:\Users\86178\AppData\Local\Kingsoft\WPS Office\12.1.0.26895\office6\wps.exe",
+    "WPS Writer": r"C:\Users\86178\AppData\Local\Kingsoft\WPS Office\12.1.0.26895\office6\wps.exe",
     # ── 开发工具 ──
     "VSCode": "code",
     "VS Code": "code",

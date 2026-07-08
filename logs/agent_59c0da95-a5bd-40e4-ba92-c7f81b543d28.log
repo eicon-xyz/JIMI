@@ -1,0 +1,25 @@
+[15:45:53] STEP 1: 打开WPS应用
+[15:46:04] Round 0: launch_app({'app_name': 'WPS'}) → success=True, msg=
+[15:46:09] Round 1: mark_step_done({'reason': 'WPS应用已成功启动'}) → success=True, msg=
+[15:46:09] STEP 2: 新建Word文档
+[15:46:17] Round 0: get_screen_info({}) → success=True, msg=
+[15:46:21] Round 1: press_key({'keys': 'ctrl+n'}) → success=True, msg=
+[15:46:25] Round 2: get_screen_info({}) → success=True, msg=
+[15:46:31] Round 3: wait({'seconds': 2}) → success=True, msg=
+[15:46:35] Round 4: get_screen_info({}) → success=True, msg=
+[15:46:40] Round 5: press_key({'keys': 'ctrl+s'}) → success=True, msg=
+[15:46:45] Round 6: wait({'seconds': 1}) → success=True, msg=
+[15:46:49] Round 7: get_screen_info({}) → success=True, msg=
+[15:46:54] Round 8: mark_step_done({'reason': '已按Ctrl+N新建空白Word文档，操作成功'}) → success=True, msg=
+[15:46:54] STEP 3: 在文档中输入以'HAJIMI'开头的一段话
+[15:47:03] Round 0: get_screen_info({}) → success=True, msg=
+[15:47:10] Round 1: wait({'seconds': 3}) → success=True, msg=
+[15:47:14] Round 2: get_screen_info({}) → success=True, msg=
+[15:47:19] Round 3: press_key({'keys': 'ctrl+n'}) → success=True, msg=
+[15:47:25] Round 4: wait({'seconds': 2}) → success=True, msg=
+[15:47:29] Round 5: get_screen_info({}) → success=True, msg=
+[15:47:34] Round 6: press_key({'keys': 'HAJIMI'}) → success=True, msg=
+[15:47:39] Round 7: press_key({'keys': ' はじめまして、よろしくお願いします。'}) → success=True, msg=
+[15:47:43] Round 8: press_key({'keys': 'ctrl+a'}) → success=True, msg=
+[15:47:47] Round 9: press_key({'keys': 'delete'}) → success=True, msg=
+[15:47:51] Round 10: get_screen_info({}) → success=True, msg=

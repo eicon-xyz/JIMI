@@ -1,0 +1,15 @@
+[13:29:49] STEP 1: 打开浏览器访问 http://127.0.0.1:8765/registration_form.html，帮张三填写入职培训报名表然后提交：姓名张三，手机13812345678，邮箱zhangsan@startech.com，部门研发中心，职务高级工程师，课程选AI自动化实战
+注意：提交后截图确认报名结果
+[13:30:02] Round 0: browser_navigate({'url': 'http://127.0.0.1:8765/registration_form.html'}) → success=True, msg=
+[13:30:05] Round 1: browser_snapshot({}) → success=True, msg=
+[13:30:09] Round 2: browser_type({'selector': '#name', 'text': '张三'}) → success=True, msg=
+[13:30:13] Round 3: browser_type({'selector': '#phone', 'text': '13812345678'}) → success=True, msg=
+[13:30:16] Round 4: browser_type({'selector': '#email', 'text': 'zhangsan@startech.com'}) → success=True, msg=
+[13:30:20] Round 5: browser_type({'selector': '#dept', 'text': '研发中心'}) → success=True, msg=
+[13:30:23] Round 6: browser_type({'selector': '#title', 'text': '高级工程师'}) → success=True, msg=
+[13:30:27] Round 7: browser_click({'selector': '#course-ai'}) → success=True, msg=
+[13:30:31] Round 8: browser_click({'selector': '#submit'}) → success=True, msg=
+[13:30:34] Round 9: browser_screenshot({}) → success=True, msg=
+[13:30:38] Round 10: browser_snapshot({}) → success=True, msg=
+[13:30:42] Round 11: browser_close({}) → success=True, msg=
+[13:30:46] Round 12: mark_step_done({'reason': '已成功打开浏览器访问报名表单，填写了张三的完整信息（姓名、手机13812345678、邮箱zhangsan@startech.com、部门研发中心、职务高级工程师），选择了课程"AI自动化实战"，提交报名并截图确认结果。提交后页面无交互元素，说明报名成功。'}) → success=True, msg=

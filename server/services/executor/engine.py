@@ -199,6 +199,7 @@ def run_plan_agent_loop(
                 step=es,
                 goal=goal,
                 previous_steps=previous_steps,
+                task_id=task_id,
                 cancel_event=cancel_event,
                 on_screenshot=lambda b64: _push_event(
                     task_id,
@@ -257,6 +258,7 @@ def run_plan_agent_loop(
                         step=es,
                         goal=goal,
                         previous_steps=previous_steps,
+                        task_id=task_id,
                         cancel_event=cancel_event,
                     )
                     if retry_result.status == "done":

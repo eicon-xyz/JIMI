@@ -1,0 +1,4 @@
+[17:34:40] STEP 1: Open browser and go to https://github.com/trending/python?since=daily. Scroll down a bit to see the repo list, then look at the snapshot to find the top 3 trending Python repos and their star counts. Then open Notepad, write the results as a formatted report with: title 'GitHub Python Trending Top 3', each repo on a line with name and stars.
+[17:34:54] Round 0: browser_navigate({'url': 'https://github.com/trending/python?since=daily'}) → success=True, msg=
+[17:34:58] Round 1: browser_scroll({'direction': 'down', 'amount': 400}) → success=True, msg=
+[17:35:02] Round 2: browser_snapshot({}) → success=True, msg=

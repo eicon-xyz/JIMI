@@ -3,6 +3,8 @@ Execution Agent — LLM-driven tool-calling loop for each step.
 
 The LLM observes the screen via get_screen_info, decides which tool to call,
 executes via element_id (never coordinates), verifies, and marks step done/failed.
+
+All tool calls logged to logs/agent_{task_id}.log for post-mortem analysis.
 """
 
 from __future__ import annotations
@@ -10,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import pyautogui
@@ -30,7 +34,28 @@ from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 15
+AGENT_LOG_DIR = Path(__file__).parent.parent.parent.parent / "logs"
+AGENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_agent_log_files: dict[str, object] = {}
+_agent_log_lock = threading.Lock()
+
+
+def _agent_log(task_id: str, msg: str) -> None:
+    """Write one line to the per-task agent log file."""
+    try:
+        ts = time.strftime("%H:%M:%S")
+        with _agent_log_lock:
+            f = _agent_log_files.get(task_id)
+            if f is None:
+                f = open(AGENT_LOG_DIR / f"agent_{task_id}.log", "a", encoding="utf-8")
+                _agent_log_files[task_id] = f
+            f.write(f"[{ts}] {msg}\n")
+            f.flush()
+    except Exception:
+        pass
+
+MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 25
 
 EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是完成当前步骤。你可以调用工具来观察屏幕和执行操作。
 
@@ -55,6 +80,18 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 6. 验证操作结果（见下方验证标准）
 7. 确认完成后调用 mark_step_done
 
+## Office 办公软件快捷键（WPS / Microsoft Office）
+**启动后如果停在首页/模板选择页面，不要反复截屏找按钮——直接用快捷键：**
+- 新建空白文档: Ctrl+N
+- 打开文件: Ctrl+O
+- 保存: Ctrl+S（弹出保存对话框后，输入文件名，按 Enter 确认）
+- 保存到桌面: Ctrl+S 后按 Ctrl+L 定位地址栏，输入 %USERPROFILE%\\Desktop，回车
+- 加粗: Ctrl+B
+- 标题样式: Ctrl+Alt+1 (标题1), Ctrl+Alt+2 (标题2)
+- 关闭当前文档: Ctrl+W 或 Ctrl+F4
+- 关闭整个应用: Alt+F4
+**关键规则：WPS/Microsoft Office 启动后如果看到模板选择页面而不是空白文档，直接按 Ctrl+N 新建空白文档。不要尝试用鼠标点击"新建"按钮——快捷键更快更可靠。**
+
 ## 警告：element_id 生命周期
 调用 get_screen_info 后，所有之前的 element_id 立即失效。你必须基于最新一次返回的元素列表选择目标。不得引用之前调用的 element_id。如果工具返回 "element_id not found in current screen"，你必须重新调用 get_screen_info。
 
@@ -76,6 +113,13 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 意外弹窗 → 优先点击关闭/取消按钮（content 为 "关闭"/"取消"/"跳过"/"×" 的元素）
 - 多次重试无效 → mark_step_failed
 - 弹窗遮挡目标元素 → 先关闭弹窗再继续
+
+## 中文输入策略（关键）
+**检测不到输入框时的正确做法：**
+1. 应用启动后默认光标在输入区域 → 直接调用 type_text("任意元素id", "你要输入的文字")
+2. type_text 内部通过剪贴板粘贴，支持中文，不要用 press_key 输入中文
+3. 如果 get_screen_info 返回的元素列表里找不到输入框，可以 click 窗口空白区域确保焦点
+4. press_key 只用于组合键（ctrl+v, enter, alt+tab 等），**禁止**用 press_key 输入中文或普通文字
 
 ## 效率约束
 - 连续调用 get_screen_info 是无意义的——如果上一次返回了同样的元素，不需要再调一次
@@ -429,6 +473,8 @@ class ExecutionAgent:
         self.screen_elements: list[dict] = []
         self.tools = _build_tool_definitions()
         self._browser: Optional[BrowserController] = None
+        self._current_tool = ""
+        self._current_tool_args: dict = {}
 
     @property
     def browser(self) -> BrowserController:
@@ -504,9 +550,12 @@ class ExecutionAgent:
         self._browser_loop_thread = None
 
     def _ensure_browser_started(self) -> None:
-        """Lazy-start the browser on first use."""
+        """Lazy-start the browser on first use. Lands on Bing search page."""
         if not self.browser.is_started:
-            self._run_async(self.browser.start(headless=False))
+            self._run_async(self.browser.start(
+                headless=False,
+                start_url="https://www.bing.com",
+            ))
 
     def close_browser(self) -> None:
         """Close browser and clean up. Safe to call multiple times."""
@@ -667,11 +716,18 @@ class ExecutionAgent:
     def _do_type_text(self, element_id: str, text: str) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
-            return {
-                "success": False,
-                "error": f"element_id '{element_id}' not found in current screen. "
-                f"Please call get_screen_info() again.",
-            }
+            # Fallback: paste at current cursor position (e.g. Notepad text area)
+            try:
+                pyperclip.copy(text)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.2)
+                return {"success": True, "message": f"pasted '{text}' at cursor"}
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"element_id '{element_id}' not found and fallback paste failed: {e}. "
+                    f"Please call get_screen_info() again.",
+                }
 
         cx, cy = element.center
         safety = check_step(f"type '{text}' into element")
@@ -737,6 +793,9 @@ class ExecutionAgent:
 
     def dispatch_tool(self, tool_name: str, tool_args: dict) -> dict:
         """Execute a tool call and return the result dict."""
+        self._current_tool = tool_name
+        self._current_tool_args = tool_args
+
         if tool_name == "get_screen_info":
             return self._do_get_screen_info()
         elif tool_name == "launch_app":
@@ -823,6 +882,7 @@ class ExecutionAgent:
         step: ExecutedStep,
         goal: str,
         previous_steps: list[dict],
+        task_id: str = "",
         cancel_event: Optional[threading.Event] = None,
         on_screenshot: Optional[callable] = None,
     ) -> ExecutedStep:
@@ -841,6 +901,9 @@ class ExecutionAgent:
         """
         step.status = "executing"
         self.clear_element_map()
+
+        tid = task_id or str(step.step_index)
+        _agent_log(tid, f"STEP {step.step_index}: {step.instruction}")
 
         current_step_info = {"index": step.step_index, "instruction": step.instruction}
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
@@ -960,9 +1023,13 @@ class ExecutionAgent:
 
             # Dispatch tool
             result = self.dispatch_tool(tool_name, tool_args)
-            logger.info(
-                f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}"
+            msg = (
+                f"Round {round_num}: {tool_name}({tool_args}) "
+                f"→ success={result.get('success')}, "
+                f"msg={result.get('message', result.get('error', ''))[:200]}"
             )
+            logger.info(msg)
+            _agent_log(tid, msg)
 
             # If the tool took a screenshot, push it to the frontend
             if tool_name == "get_screen_info" and on_screenshot:

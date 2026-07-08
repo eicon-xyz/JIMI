@@ -20,14 +20,20 @@ from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
-EXTRACTOR_PROMPT = """从以下任务执行记录中提取关键信息。严格返回 JSON，不要任何其他文字：
-{"app": "使用的应用名(无则null)", "path": "涉及的文件路径(无则null)", "summary": "一句话概括操作(≤100字)"}
+EXTRACTOR_PROMPT = """你是一个任务分析助手。从任务记录中提取结构化信息。
+只输出一个JSON对象，不要任何其他文字或代码块标记。
+
+输出格式:
+{{"app": "使用的应用名(如Chrome/WPS/QQ音乐)，无则填null", "path": "涉及的文件夹路径，无则填null", "summary": "一句话概括操作(≤20字)"}}
 
 任务: {query}
 步骤: {steps}"""
 
-FAILURE_EXTRACTOR_PROMPT = """以下任务执行失败了。提取失败原因。严格返回 JSON，不要任何其他文字：
-{"reason": "失败原因(≤100字)", "step_that_failed": "失败的步骤描述"}
+
+FAILURE_EXTRACTOR_PROMPT = """以下任务执行失败了。提取失败原因。
+只输出一个JSON对象，不要任何其他文字或代码块标记。
+
+{{"reason": "失败原因(≤20字)", "step_that_failed": "失败的步骤描述"}}
 
 任务: {query}
 步骤: {steps}
@@ -253,19 +259,28 @@ class MemoryExtractor:
 
         # Parse: try extract_json_object first, then raw json.loads
         try:
-            return extract_json_object(raw)
+            parsed = extract_json_object(raw)
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
             pass
 
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("Cheap LLM returned non-JSON, using raw text fallback")
-            return {
-                "app": None,
-                "path": None,
-                "summary": raw[:100],
-            }
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            # json.loads succeeded but returned a non-dict (e.g. bare string)
+            # Treat as parse failure and fall through
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Final fallback: use raw text
+        logger.warning("LLM returned non-JSON (%s...), using raw text fallback", raw[:50])
+        return {
+            "app": None,
+            "path": None,
+            "summary": raw[:100],
+        }
 
     def _resolve_failure_lessons(self, user_id: str, user_query: str) -> None:
         """Check if this success resolves any active failure_lesson memories.

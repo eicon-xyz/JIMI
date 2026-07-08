@@ -22,7 +22,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # ── Snapshot size guard ──
-MAX_SNAPSHOT_ELEMENTS = 80  # drop elements beyond this to avoid token explosion
+MAX_SNAPSHOT_ELEMENTS = 150  # elements beyond this trigger truncation warning
 MAX_TEXT_LENGTH = 120        # truncate visible text per element
 
 
@@ -47,12 +47,15 @@ class BrowserController:
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    async def start(self, headless: bool = False, user_data_dir: str | None = None) -> None:
+    async def start(self, headless: bool = False, user_data_dir: str | None = None, start_url: str | None = None) -> None:
         """Launch Chromium via Playwright.
 
         Args:
             headless: Run without UI. Default False so humans can watch.
             user_data_dir: Persistent profile directory for cookies/login state.
+            start_url: URL to navigate to on launch (default: about:blank).
+                       Set to 'https://www.bing.com' or 'https://www.google.com'
+                       to land on a search-ready page.
         """
         if self._started:
             logger.info("BrowserController already started, reusing")
@@ -99,6 +102,14 @@ class BrowserController:
 
         self._started = True
         logger.info("BrowserController started successfully")
+
+        # Navigate to start URL if requested (avoids blank tab on launch)
+        if start_url:
+            logger.info("Browser navigating to start_url: %s", start_url)
+            try:
+                await self._page.goto(start_url, wait_until="commit", timeout=10_000)
+            except Exception:
+                logger.warning("start_url navigation timed out, continuing anyway")
 
     async def close(self) -> None:
         """Close browser and stop Playwright. Safe to call multiple times."""

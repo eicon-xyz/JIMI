@@ -1,0 +1,49 @@
+C:\ProgramData\anaconda3\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.2.2) or chardet (7.4.3)/charset_normalizer (2.0.4) doesn't match a supported version!
+  warnings.warn(
+D:\HAJI\HAJIMI_UI\server\main.py:31: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Will watch for changes in these directories: ['D:\\HAJI\\HAJIMI_UI']
+INFO:     Uvicorn running on http://0.0.0.0:8010 (Press CTRL+C to quit)
+INFO:     Started reloader process [27236] using WatchFiles
+C:\ProgramData\anaconda3\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.2.2) or chardet (7.4.3)/charset_normalizer (2.0.4) doesn't match a supported version!
+  warnings.warn(
+INFO:     Started server process [7736]
+INFO:     Waiting for application startup.
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_users")
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_transactions")
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,770 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_step_logs")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_feedback")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_failures")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_system_configs")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_redline_logs")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("t_memories")
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-07-08 18:01:26,771 INFO sqlalchemy.engine.Engine COMMIT
+2026-07-08 18:01:26,777 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-07-08 18:01:26,779 INFO sqlalchemy.engine.Engine SELECT t_users.user_id AS t_users_user_id, t_users.username AS t_users_username, t_users.password_hash AS t_users_password_hash, t_users.role AS t_users_role, t_users.preferences AS t_users_preferences, t_users.created_at AS t_users_created_at, t_users.last_login_at AS t_users_last_login_at 
+FROM t_users 
+WHERE t_users.username = ?
+ LIMIT ? OFFSET ?
+2026-07-08 18:01:26,779 INFO sqlalchemy.engine.Engine [generated in 0.00014s] ('default', 1, 0)
+2026-07-08 18:01:26,780 INFO sqlalchemy.engine.Engine ROLLBACK
+2026-07-08 18:01:26,884 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-07-08 18:01:26,886 INFO sqlalchemy.engine.Engine SELECT t_memories.memory_id AS t_memories_memory_id, t_memories.user_id AS t_memories_user_id, t_memories.memory_type AS t_memories_memory_type, t_memories.category AS t_memories_category, t_memories.trigger_query AS t_memories_trigger_query, t_memories.summary AS t_memories_summary, t_memories.embedding AS t_memories_embedding, t_memories.confidence AS t_memories_confidence, t_memories.is_active AS t_memories_is_active, t_memories.event_count AS t_memories_event_count, t_memories.resolved_count AS t_memories_resolved_count, t_memories.created_at AS t_memories_created_at, t_memories.updated_at AS t_memories_updated_at 
+FROM t_memories 
+WHERE t_memories.is_active = 1
+2026-07-08 18:01:26,888 INFO sqlalchemy.engine.Engine [generated in 0.00238s] ()
+2026-07-08 18:01:26,889 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     Application startup complete.
+INFO:     127.0.0.1:53502 - "GET /api/demo/health HTTP/1.1" 200 OK
