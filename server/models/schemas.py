@@ -311,3 +311,80 @@ class InspectResponse(BaseModel):
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
+
+
+# ────────────────────────── Auth 认证模型 ──────────────────────────
+
+
+class RegisterRequest(BaseModel):
+    """用户注册请求"""
+
+    username: str = Field(..., min_length=2, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    """登录请求"""
+
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class RefreshRequest(BaseModel):
+    """刷新 token 请求"""
+
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    """登出请求"""
+
+    refresh_token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    """管理员重置密码请求"""
+
+    user_id: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class TokenResponse(BaseModel):
+    """Token 响应体（login / refresh 共用）"""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "Bearer"
+    expires_in: int  # seconds until access token expires
+    user: dict  # {user_id, username, role}
+
+
+class UserListItem(BaseModel):
+    """用户列表中的单条记录"""
+
+    user_id: str
+    username: str
+    role: str
+    is_active: bool
+    task_count: int = 0
+    last_login_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class UserListResponse(BaseModel):
+    """用户列表响应"""
+
+    total: int
+    items: list[dict]
+
+
+class UserStatsResponse(BaseModel):
+    """单用户统计响应"""
+
+    user_id: str
+    username: str
+    total_tasks: int
+    success_rate: float
+    total_failures: int
+    total_feedback: int
+    last_active_at: Optional[str] = None
