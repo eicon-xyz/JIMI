@@ -108,5 +108,14 @@ class Config:
     MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "15"))
     STEP_RETRY_LIMIT: int = int(os.getenv("STEP_RETRY_LIMIT", "1"))
 
+    # ═════════════════════════════════════════════════════════════════════
+    # Auth — JWT + admin seed
+    # ═════════════════════════════════════════════════════════════════════
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "hajimi-jwt-secret-change-me")
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "30"))
+    REFRESH_EXPIRE_DAYS: int = int(os.getenv("REFRESH_EXPIRE_DAYS", "7"))
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
+
 
 settings = Config()
