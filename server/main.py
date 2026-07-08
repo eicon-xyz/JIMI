@@ -32,6 +32,27 @@ app = FastAPI(
 def on_startup():
     """初始化数据库表"""
     init_db()
+    # Ensure default user exists for Phase 1 memory extraction
+    try:
+        from server.database import SessionLocal
+        from server.database.models import User
+        from datetime import datetime, timezone
+
+        db = SessionLocal()
+        existing = db.query(User).filter(User.username == "default").first()
+        if not existing:
+            user = User(
+                user_id="default",
+                username="default",
+                password_hash="",
+                role="user",
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(user)
+            db.commit()
+        db.close()
+    except Exception:
+        pass
     # Pre-load memory cache for fast retrieval
     try:
         from server.services.memory.retriever import get_retriever
@@ -86,7 +107,7 @@ async def root():
 
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app",
+        "server.main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,

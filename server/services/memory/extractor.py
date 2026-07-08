@@ -52,7 +52,15 @@ class MemoryExtractor:
         try:
             result = self._extract_with_llm(user_query, steps, is_failure=False)
         except Exception as e:
-            logger.warning("Memory extraction LLM call failed: %s", e)
+            logger.warning("Memory extraction LLM call failed: %s; storing fallback memory", e)
+            # Fallback: store memory with raw query as summary
+            self._insert_without_embedding(
+                user_id=user_id,
+                memory_type="success_pattern",
+                category="task_workflow",
+                trigger_query=user_query,
+                summary=user_query[:500],
+            )
             return
 
         summary = result.get("summary", user_query[:100])
@@ -76,26 +84,40 @@ class MemoryExtractor:
         # Encode for dedup
         vec = encode(user_query)
         if vec is None:
-            return
+            logger.warning("Embedding model unavailable — storing without embedding")
+            # Store without embedding — retrieval won't match by similarity,
+            # but the memory is still persisted for diagnostic purposes
+            vec = None
 
         # Dedup + insert + sync cache
-        memory_id = check_and_merge(
-            user_id=user_id,
-            summary=enriched,
-            category=category,
-            memory_type="success_pattern",
-            trigger_query=user_query,
-            embedding=vec,
-        )
-        if memory_id:
-            self._retriever.add_to_cache(
+        if vec is not None:
+            memory_id = check_and_merge(
                 user_id=user_id,
-                memory_id=memory_id,
+                summary=enriched,
+                category=category,
+                memory_type="success_pattern",
+                trigger_query=user_query,
+                embedding=vec,
+            )
+            if memory_id:
+                self._retriever.add_to_cache(
+                    user_id=user_id,
+                    memory_id=memory_id,
+                    memory_type="success_pattern",
+                    category=category,
+                    trigger_query=user_query,
+                    summary=enriched,
+                    embedding=vec,
+                )
+        else:
+            # No embedding — store without embedding blob, skip cache
+            logger.info("Storing memory without embedding (model unavailable)")
+            self._insert_without_embedding(
+                user_id=user_id,
                 memory_type="success_pattern",
                 category=category,
                 trigger_query=user_query,
                 summary=enriched,
-                embedding=vec,
             )
 
         # Resolve related failure lessons
@@ -120,37 +142,76 @@ class MemoryExtractor:
             )
         except Exception as e:
             logger.warning("Failure memory extraction LLM call failed: %s", e)
+            # Fallback: store bare failure memory
+            self._insert_without_embedding(
+                user_id=user_id,
+                memory_type="failure_lesson",
+                category="failure_avoidance",
+                trigger_query=user_query,
+                summary=f"失败: {error_detail[:200] or user_query[:200]}",
+            )
             return
 
         reason = result.get("reason", error_detail[:100] or user_query[:100])
         summary = f"失败: {reason}"
 
         vec = encode(user_query)
-        if vec is None:
-            return
-
-        memory_id = check_and_merge(
-            user_id=user_id,
-            summary=summary,
-            category="failure_avoidance",
-            memory_type="failure_lesson",
-            trigger_query=user_query,
-            embedding=vec,
-        )
-        if memory_id:
-            self._retriever.add_to_cache(
+        if vec is not None:
+            memory_id = check_and_merge(
                 user_id=user_id,
-                memory_id=memory_id,
+                summary=summary,
+                category="failure_avoidance",
+                memory_type="failure_lesson",
+                trigger_query=user_query,
+                embedding=vec,
+            )
+            if memory_id:
+                self._retriever.add_to_cache(
+                    user_id=user_id,
+                    memory_id=memory_id,
+                    memory_type="failure_lesson",
+                    category="failure_avoidance",
+                    trigger_query=user_query,
+                    summary=summary,
+                    embedding=vec,
+                )
+        else:
+            logger.info("Storing failure memory without embedding (model unavailable)")
+            self._insert_without_embedding(
+                user_id=user_id,
                 memory_type="failure_lesson",
                 category="failure_avoidance",
                 trigger_query=user_query,
                 summary=summary,
-                embedding=vec,
             )
 
         logger.info("Failure memory recorded: %s", summary[:60])
 
     # ── Internal helpers ──────────────────────────────────────────────
+
+    def _insert_without_embedding(
+        self,
+        user_id: str,
+        memory_type: str,
+        category: Optional[str],
+        trigger_query: str,
+        summary: str,
+    ) -> Optional[str]:
+        """Insert a memory row WITHOUT embedding blob (model unavailable fallback)."""
+        try:
+            mem = MemoryRepository.create(
+                user_id=user_id,
+                memory_type=memory_type,
+                trigger_query=trigger_query,
+                summary=summary[:500],
+                embedding_bytes=None,
+                category=category,
+            )
+            logger.info("Memory stored without embedding: %s (id=%s)", summary[:50], mem.memory_id)
+            return mem.memory_id
+        except Exception as e:
+            logger.error("Failed to insert memory without embedding: %s", e)
+            return None
 
     def _extract_with_llm(
         self,
@@ -159,8 +220,8 @@ class MemoryExtractor:
         is_failure: bool = False,
         error_detail: str = "",
     ) -> dict:
-        """Call cheap LLM to extract structured info from task execution."""
-        from server.services.llm.providers import call_llm
+        """Call LLM to extract structured info from task execution."""
+        from server.services.llm.providers import call_llm as _llm_call
 
         # Serialize steps
         steps_text = "\n".join(
@@ -175,10 +236,11 @@ class MemoryExtractor:
         else:
             prompt = EXTRACTOR_PROMPT.format(query=query, steps=steps_text)
 
-        provider = getattr(settings, "MEMORY_EXTRACTOR_PROVIDER", "qwen")
-        model = getattr(settings, "MEMORY_EXTRACTOR_MODEL", "qwen-turbo")
+        # Use memory-specific config if set, otherwise fall back to main LLM
+        provider = getattr(settings, "MEMORY_EXTRACTOR_PROVIDER", None) or settings.LLM_PROVIDER
+        model = getattr(settings, "MEMORY_EXTRACTOR_MODEL", None) or settings.LLM_MODEL
 
-        raw = call_llm(
+        raw = _llm_call(
             user_text=prompt,
             images=None,
             system_prompt="You are a task analysis assistant. Always respond with ONLY valid JSON, no markdown, no extra text.",

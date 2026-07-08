@@ -36,8 +36,11 @@ def check_and_merge(
         memory_id of the created memory, or None on unexpected error.
     """
     if embedding is None:
-        logger.warning("Embedding is None — skipping memory insert")
-        return None
+        # No embedding — insert directly without dedup (can't compare)
+        logger.info("Embedding is None — inserting without dedup check")
+        return _insert_with_null_embedding(
+            user_id, memory_type, trigger_query, summary, category
+        )
 
     if category is None:
         # No category — no dedup, just insert
@@ -69,6 +72,30 @@ def check_and_merge(
 
     # No similar memory found — insert as new
     return _insert(user_id, memory_type, trigger_query, summary, embedding, category)
+
+
+def _insert_with_null_embedding(
+    user_id: str,
+    memory_type: str,
+    trigger_query: str,
+    summary: str,
+    category: Optional[str],
+) -> Optional[str]:
+    """Insert a memory row with NULL embedding blob."""
+    truncated = summary[:500]
+    try:
+        mem = MemoryRepository.create(
+            user_id=user_id,
+            memory_type=memory_type,
+            trigger_query=trigger_query,
+            summary=truncated,
+            embedding_bytes=None,
+            category=category,
+        )
+        return mem.memory_id
+    except Exception as e:
+        logger.error("Failed to insert memory (null embedding): %s", e)
+        return None
 
 
 def _insert(

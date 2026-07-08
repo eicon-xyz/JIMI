@@ -359,6 +359,7 @@ def call_llm(
     history: list | None = None,
     system_prompt: str = "",
     provider: str | None = None,
+    model: str | None = None,
     temperature: float = 0.3,
     max_tokens: int = 4096,
     timeout: int = 120,
@@ -372,6 +373,7 @@ def call_llm(
         history: List of {"role": str, "content": str} dicts
         system_prompt: System prompt (uses DEFAULT_SYSTEM_PROMPT if empty)
         provider: Provider name (openai/claude/gemini/groq/openrouter/ollama/qwen/glm)
+        model: Override model name (uses provider default if not set)
         temperature: Sampling temperature
         max_tokens: Max output tokens
         timeout: HTTP timeout in seconds
@@ -426,9 +428,10 @@ def call_llm(
     adaptive_tokens = [t for t in adaptive_tokens if not (t in seen or seen.add(t))]  # type: ignore
 
     last_error = None
+    resolved_model = model or pc["model"]
     for attempt, attempt_tokens in enumerate(adaptive_tokens):
         body = {
-            "model": pc["model"],
+            "model": resolved_model,
             "messages": msgs,
             "max_tokens": attempt_tokens,
             "temperature": temperature,
