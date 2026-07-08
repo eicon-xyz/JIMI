@@ -164,6 +164,63 @@ async def stats_redline(admin_key: str = Depends(verify_admin_key)):
 
 
 @router.get(
+    "/failures/stats",
+    summary="失败归因统计",
+    description="按失败类型分布 + 24h 趋势",
+)
+async def failures_stats(admin_key: str = Depends(verify_admin_key)):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func
+
+    from server.database import SessionLocal
+    from server.database.models import Failure
+
+    db = SessionLocal()
+    try:
+        # 按类型分布
+        type_dist = (
+            db.query(
+                Failure.failure_type,
+                func.count(Failure.failure_id).label("cnt"),
+            )
+            .group_by(Failure.failure_type)
+            .all()
+        )
+        distribution = [
+            {"type": row[0], "label": row[0], "count": row[1]}
+            for row in type_dist
+        ]
+
+        # 24h 趋势
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        trend_rows = (
+            db.query(
+                func.strftime("%H", Failure.created_at).label("hour"),
+                func.count(Failure.failure_id).label("cnt"),
+            )
+            .filter(Failure.created_at >= since)
+            .group_by("hour")
+            .order_by("hour")
+            .all()
+        )
+        trend = [{"hour": f"{int(row[0]):02d}:00", "count": row[1]} for row in trend_rows]
+
+        total = db.query(Failure).count()
+
+        return {
+            "success": True,
+            "data": {
+                "distribution": distribution,
+                "trend": trend,
+                "total": total,
+            },
+        }
+    finally:
+        db.close()
+
+
+@router.get(
     "/failures/list",
     summary="失败记录列表",
 )
