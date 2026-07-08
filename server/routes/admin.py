@@ -18,7 +18,7 @@ from server.database.repository import (
     UserRepository,
 )
 from server.models.schemas import ResetPasswordRequest
-from server.services.auth import decode_access_token
+from server.services.auth import decode_access_token, hash_password
 from server.services.metrics import metrics
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -335,7 +335,6 @@ async def session_status(admin_key: str = Depends(verify_admin_key)):
 # 用户管理（新增）
 # ═══════════════════════════════════════════════════════════════════
 
-from server.services.auth import hash_password
 
 
 @router.get(

@@ -31,26 +31,41 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
-    """初始化数据库表"""
+    """初始化数据库表 + 种子管理员账号"""
     init_db()
-    # Ensure default user exists for Phase 1 memory extraction
+    # Seed admin and default users
     try:
         from server.database import SessionLocal
         from server.database.models import User
-        from datetime import datetime, timezone
+        from server.services.auth import hash_password
 
         db = SessionLocal()
-        existing = db.query(User).filter(User.username == "default").first()
-        if not existing:
-            user = User(
+
+        # Admin user from config
+        admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
+        if not admin_user:
+            admin_user = User(
+                username=settings.ADMIN_USERNAME,
+                password_hash=hash_password(settings.ADMIN_PASSWORD),
+                role="admin",
+                is_active=True,
+            )
+            db.add(admin_user)
+            db.commit()
+
+        # Legacy default user (needed for existing memory extraction code)
+        default_user = db.query(User).filter(User.username == "default").first()
+        if not default_user:
+            default_user = User(
                 user_id="default",
                 username="default",
                 password_hash="",
                 role="user",
-                created_at=datetime.now(timezone.utc),
+                is_active=True,
             )
-            db.add(user)
+            db.add(default_user)
             db.commit()
+
         db.close()
     except Exception:
         pass
