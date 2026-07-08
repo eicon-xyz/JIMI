@@ -8,13 +8,17 @@ HAJIMI Admin API 路由
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from server.config import settings
 from server.database.repository import (
     ConfigRepository,
     RedlineRepository,
     TaskRepository,
+    UserRepository,
 )
+from server.models.schemas import ResetPasswordRequest
+from server.services.auth import decode_access_token
 from server.services.metrics import metrics
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -37,6 +41,37 @@ def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
             },
         )
     return x_admin_key
+
+
+# Bearer token scheme (optional — we allow either header)
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def verify_admin_or_jwt(
+    x_admin_key: Optional[str] = Header(None),
+    bearer: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
+) -> dict:
+    """Dual-auth: accept X-Admin-Key OR Bearer JWT (role=admin)."""
+    # Try demo key first
+    if x_admin_key and x_admin_key == settings.DEMO_KEY:
+        return {"auth_method": "demo_key"}
+
+    # Try JWT
+    if bearer and bearer.credentials:
+        payload = decode_access_token(bearer.credentials)
+        if payload and payload.get("role") == "admin":
+            return {"auth_method": "jwt", "user_id": payload["sub"], "role": payload["role"]}
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={
+            "error": {
+                "code": "AUTH_FAILED",
+                "message": "需要 X-Admin-Key 或管理员 JWT 认证",
+                "details": {},
+            }
+        },
+    )
 
 
 # ────────────────────────── 统计总览 ──────────────────────────
@@ -294,3 +329,186 @@ async def session_status(admin_key: str = Depends(verify_admin_key)):
     from server.services.agent.orchestrator import orchestrator
 
     return {"session": orchestrator.get_session()}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 用户管理（新增）
+# ═══════════════════════════════════════════════════════════════════
+
+from server.services.auth import hash_password
+
+
+@router.get(
+    "/users/list",
+    summary="用户列表",
+    description="分页查询用户列表，支持用户名搜索。需管理员权限。",
+)
+async def users_list(
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    auth: dict = Depends(verify_admin_or_jwt),
+):
+    """获取用户列表，含任务数量和最后登录时间。"""
+    from server.database import SessionLocal
+    from server.database.models import Transaction
+
+    total, users = UserRepository.list_users(
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
+
+    # Collect task counts per user in one pass
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func
+
+        items = []
+        for u in users:
+            task_count = (
+                db.query(func.count(Transaction.task_id))
+                .filter(Transaction.user_id == u.user_id)
+                .scalar()
+            ) or 0
+            items.append({
+                "user_id": u.user_id,
+                "username": u.username,
+                "role": u.role,
+                "is_active": u.is_active,
+                "task_count": task_count,
+                "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            })
+    finally:
+        db.close()
+
+    return {
+        "success": True,
+        "data": {
+            "total": total,
+            "items": items,
+        },
+    }
+
+
+@router.get(
+    "/users/stats/{user_id}",
+    summary="用户任务统计",
+    description="获取指定用户的任务统计信息。需管理员权限。",
+)
+async def users_stats(
+    user_id: str,
+    auth: dict = Depends(verify_admin_or_jwt),
+):
+    """获取单用户的任务量、成功率、反馈等统计。"""
+    user = UserRepository.get_by_id(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "用户不存在",
+                },
+            },
+        )
+
+    stats = UserRepository.get_user_stats(user_id)
+    stats["user_id"] = user.user_id
+    stats["username"] = user.username
+
+    return {
+        "success": True,
+        "data": stats,
+    }
+
+
+@router.post(
+    "/users/reset-password",
+    summary="重置用户密码",
+    description="管理员重置指定用户的密码。需管理员权限。",
+)
+async def users_reset_password(
+    body: ResetPasswordRequest,
+    auth: dict = Depends(verify_admin_or_jwt),
+):
+    """管理员重置用户密码。"""
+    # Prevent admin from resetting their own password via this endpoint
+    if auth.get("user_id") == body.user_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "CANNOT_DELETE_SELF",
+                    "message": "不能通过此接口重置自己的密码",
+                },
+            },
+        )
+
+    new_hash = hash_password(body.new_password)
+    ok = UserRepository.update_password(body.user_id, new_hash)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "用户不存在",
+                },
+            },
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "message": "密码已重置",
+        },
+    }
+
+
+@router.delete(
+    "/users/{user_id}",
+    summary="删除用户",
+    description="删除指定用户，其历史任务和反馈数据的 user_id 将被置空。需管理员权限。",
+)
+async def users_delete(
+    user_id: str,
+    auth: dict = Depends(verify_admin_or_jwt),
+):
+    """删除用户，历史数据保留但 user_id 置 NULL。"""
+    # Prevent self-delete
+    if auth.get("user_id") == user_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "CANNOT_DELETE_SELF",
+                    "message": "不能删除自己",
+                },
+            },
+        )
+
+    ok = UserRepository.delete_user(user_id)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "用户不存在",
+                },
+            },
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "message": "用户已删除",
+        },
+    }

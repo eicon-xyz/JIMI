@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from server.config import settings
 from server.database import init_db
 from server.routes.admin import router as admin_router
+from server.routes.auth import router as auth_router
 from server.routes.demo import router as demo_router
 
 app = FastAPI(
@@ -92,6 +93,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(demo_router)
 app.include_router(admin_router)
+app.include_router(auth_router)
 
 
 @app.get("/")
