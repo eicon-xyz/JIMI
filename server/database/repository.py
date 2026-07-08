@@ -7,6 +7,9 @@ HAJIMI 数据仓库层
 from datetime import datetime, timezone
 from typing import Optional
 
+import hashlib
+import secrets
+
 from sqlalchemy.orm import Session
 
 from server.database import SessionLocal
@@ -15,9 +18,11 @@ from server.database.models import (
     Feedback,
     Memory,
     RedlineLog,
+    RefreshToken,
     StepLog,
     SystemConfig,
     Transaction,
+    User,
 )
 from server.models.schemas import ProcessResponse
 
@@ -482,6 +487,302 @@ class ConfigRepository:
             db.commit()
             db.refresh(config)
             return config
+        finally:
+            if close_db:
+                db.close()
+
+
+class UserRepository:
+    """用户管理仓库"""
+
+    @staticmethod
+    def create(
+        username: str,
+        password_hash: str,
+        role: str = "user",
+        db: Optional[Session] = None,
+    ) -> User:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            user = User(
+                username=username,
+                password_hash=password_hash,
+                role=role,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return user
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_by_username(
+        username: str,
+        db: Optional[Session] = None,
+    ) -> Optional[User]:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            return db.query(User).filter(User.username == username).first()
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_by_id(
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> Optional[User]:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            return db.query(User).filter(User.user_id == user_id).first()
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def list_users(
+        page: int = 1,
+        page_size: int = 20,
+        search: Optional[str] = None,
+        db: Optional[Session] = None,
+    ) -> tuple[int, list[User]]:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            from sqlalchemy import func
+
+            q = db.query(User)
+            if search:
+                q = q.filter(User.username.contains(search))
+            total = q.count()
+            users = (
+                q.order_by(User.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            return total, users
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_user_stats(
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> dict:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            from sqlalchemy import func
+
+            total_tasks = (
+                db.query(func.count(Transaction.task_id))
+                .filter(Transaction.user_id == user_id)
+                .scalar()
+            ) or 0
+            success_count = (
+                db.query(func.count(Transaction.task_id))
+                .filter(Transaction.user_id == user_id, Transaction.result == "success")
+                .scalar()
+            ) or 0
+            fail_count = (
+                db.query(func.count(Transaction.task_id))
+                .filter(Transaction.user_id == user_id, Transaction.result == "fail")
+                .scalar()
+            ) or 0
+            feedback_count = (
+                db.query(func.count(Feedback.feedback_id))
+                .filter(Feedback.user_id == user_id)
+                .scalar()
+            ) or 0
+            last_txn = (
+                db.query(Transaction.timestamp)
+                .filter(Transaction.user_id == user_id)
+                .order_by(Transaction.timestamp.desc())
+                .first()
+            )
+
+            return {
+                "total_tasks": total_tasks,
+                "success_count": success_count,
+                "success_rate": round(success_count / total_tasks, 3) if total_tasks > 0 else 0.0,
+                "total_failures": fail_count,
+                "total_feedback": feedback_count,
+                "last_active_at": last_txn[0].isoformat() if last_txn and last_txn[0] else None,
+            }
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def update_password(
+        user_id: str,
+        new_password_hash: str,
+        db: Optional[Session] = None,
+    ) -> bool:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                return False
+            user.password_hash = new_password_hash
+            db.commit()
+            return True
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def delete_user(
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> bool:
+        """Delete user, set their transactions/feedback user_id to NULL."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if not user:
+                return False
+            # Nullify foreign keys in transactions and feedback
+            db.query(Transaction).filter(Transaction.user_id == user_id).update(
+                {Transaction.user_id: None}
+            )
+            db.query(Feedback).filter(Feedback.user_id == user_id).update(
+                {Feedback.user_id: None}
+            )
+            db.delete(user)
+            db.commit()
+            return True
+        finally:
+            if close_db:
+                db.close()
+
+
+class RefreshTokenRepository:
+    """Refresh Token 仓库"""
+
+    @staticmethod
+    def create(
+        user_id: str,
+        token_hash: str,
+        expires_at,
+        db: Optional[Session] = None,
+    ) -> RefreshToken:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            rt = RefreshToken(
+                user_id=user_id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+            db.add(rt)
+            db.commit()
+            db.refresh(rt)
+            return rt
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_by_hash(
+        token_hash: str,
+        db: Optional[Session] = None,
+    ) -> Optional[RefreshToken]:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            return (
+                db.query(RefreshToken)
+                .filter(RefreshToken.token_hash == token_hash)
+                .first()
+            )
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def revoke(
+        token_hash: str,
+        db: Optional[Session] = None,
+    ) -> bool:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            rt = (
+                db.query(RefreshToken)
+                .filter(RefreshToken.token_hash == token_hash)
+                .first()
+            )
+            if not rt:
+                return False
+            rt.revoked_at = datetime.now(timezone.utc)
+            db.commit()
+            return True
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def cleanup_expired(
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> int:
+        """Delete all expired refresh tokens for a user. Returns count deleted."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            count = (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.expires_at < datetime.now(timezone.utc),
+                )
+                .delete()
+            )
+            db.commit()
+            return count
         finally:
             if close_db:
                 db.close()
