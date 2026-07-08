@@ -45,6 +45,7 @@ def on_startup():
         admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
         if not admin_user:
             admin_user = User(
+                user_id="admin",
                 username=settings.ADMIN_USERNAME,
                 password_hash=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",

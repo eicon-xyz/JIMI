@@ -7,9 +7,6 @@ HAJIMI 数据仓库层
 from datetime import datetime, timezone
 from typing import Optional
 
-import hashlib
-import secrets
-
 from sqlalchemy.orm import Session
 
 from server.database import SessionLocal

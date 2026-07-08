@@ -43,7 +43,7 @@ def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
     return x_admin_key
 
 
-# Bearer token scheme (optional — we allow either header)
+# Bearer token scheme (auto_error=False lets us handle auth errors ourselves)
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -358,24 +358,31 @@ async def users_list(
         search=search,
     )
 
-    # Collect task counts per user in one pass
+    # Collect task counts for all returned users in one query
     db = SessionLocal()
     try:
         from sqlalchemy import func
 
+        user_ids = [u.user_id for u in users]
+        counts_query = (
+            db.query(
+                Transaction.user_id,
+                func.count(Transaction.task_id).label("cnt"),
+            )
+            .filter(Transaction.user_id.in_(user_ids))
+            .group_by(Transaction.user_id)
+            .all()
+        )
+        count_map = {row[0]: row[1] for row in counts_query}
+
         items = []
         for u in users:
-            task_count = (
-                db.query(func.count(Transaction.task_id))
-                .filter(Transaction.user_id == u.user_id)
-                .scalar()
-            ) or 0
             items.append({
                 "user_id": u.user_id,
                 "username": u.username,
                 "role": u.role,
                 "is_active": u.is_active,
-                "task_count": task_count,
+                "task_count": count_map.get(u.user_id, 0),
                 "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
             })

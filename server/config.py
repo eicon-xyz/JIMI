@@ -111,7 +111,9 @@ class Config:
     # ═════════════════════════════════════════════════════════════════════
     # Auth — JWT + admin seed
     # ═════════════════════════════════════════════════════════════════════
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "hajimi-jwt-secret-change-me")
+    JWT_SECRET: str = os.getenv(
+        "JWT_SECRET", "hajimi-jwt-secret-change-me-in-production"
+    )
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "30"))
     REFRESH_EXPIRE_DAYS: int = int(os.getenv("REFRESH_EXPIRE_DAYS", "7"))
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")

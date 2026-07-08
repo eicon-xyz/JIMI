@@ -202,3 +202,5 @@ curl -X DELETE http://127.0.0.1:8010/api/admin/users/a1b2c3d4-e5f6-7890-abcd-ef1
 | AUTH_FAILED | 401 | X-Admin-Key 无效或 JWT 无效/非管理员 |
 | USER_NOT_FOUND | 404 | 用户不存在 |
 | CANNOT_DELETE_SELF | 400 | 不能删除或重置自己的密码 |
+
+> **注意**: CANNOT_DELETE_SELF 仅在 JWT 认证时生效（可以识别当前用户身份）。X-Admin-Key 认证时不会触发此限制。

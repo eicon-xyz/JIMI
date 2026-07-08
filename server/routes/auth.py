@@ -33,36 +33,53 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 # ────────────────────────── 辅助 ──────────────────────────
 
 
-def _token_pair_response(user_id: str, username: str, role: str) -> dict:
+def _token_pair_response(
+    user_id: str,
+    username: str,
+    role: str,
+    db = None,
+) -> dict:
     """Generate access + refresh token pair and persist refresh token."""
-    access_token = create_access_token(user_id, username, role)
-    refresh_raw = create_refresh_token()
-    refresh_hash = hash_token(refresh_raw)
-    expires_at = refresh_token_expires_at()
+    close_db = False
+    if db is None:
+        from server.database import SessionLocal
 
-    RefreshTokenRepository.create(
-        user_id=user_id,
-        token_hash=refresh_hash,
-        expires_at=expires_at,
-    )
+        db = SessionLocal()
+        close_db = True
 
-    # Clean up expired tokens for this user
-    RefreshTokenRepository.cleanup_expired(user_id)
+    try:
+        access_token = create_access_token(user_id, username, role)
+        refresh_raw = create_refresh_token()
+        refresh_hash = hash_token(refresh_raw)
+        expires_at = refresh_token_expires_at()
 
-    return {
-        "success": True,
-        "data": {
-            "access_token": access_token,
-            "refresh_token": refresh_raw,
-            "token_type": "Bearer",
-            "expires_in": 1800,  # 30 minutes in seconds
-            "user": {
-                "user_id": user_id,
-                "username": username,
-                "role": role,
+        RefreshTokenRepository.create(
+            user_id=user_id,
+            token_hash=refresh_hash,
+            expires_at=expires_at,
+            db=db,
+        )
+
+        # Clean up expired tokens for this user
+        RefreshTokenRepository.cleanup_expired(user_id, db=db)
+
+        return {
+            "success": True,
+            "data": {
+                "access_token": access_token,
+                "refresh_token": refresh_raw,
+                "token_type": "Bearer",
+                "expires_in": 1800,  # 30 minutes in seconds
+                "user": {
+                    "user_id": user_id,
+                    "username": username,
+                    "role": role,
+                },
             },
-        },
-    }
+        }
+    finally:
+        if close_db:
+            db.close()
 
 
 # ────────────────────────── 注册 ──────────────────────────
