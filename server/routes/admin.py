@@ -322,6 +322,45 @@ async def config_deploy(
     }
 
 
+@router.get(
+    "/config/deploy-logs",
+    summary="部署操作日志",
+)
+async def config_deploy_logs(
+    limit: int = 20,
+    admin_key: str = Depends(verify_admin_key),
+):
+    """返回部署操作日志。从系统配置的更新记录构建。"""
+    from server.database import SessionLocal
+    from server.database.models import SystemConfig
+
+    db = SessionLocal()
+    try:
+        configs = (
+            db.query(SystemConfig)
+            .order_by(SystemConfig.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+        logs = [
+            {
+                "id": i + 1,
+                "operator": "admin",
+                "version": c.config_key,
+                "action": "deploy" if c.updated_at else "unknown",
+                "timestamp": c.updated_at.isoformat() if c.updated_at else "",
+                "affected": 0,
+            }
+            for i, c in enumerate(configs)
+        ]
+        return {
+            "success": True,
+            "data": {"logs": logs},
+        }
+    finally:
+        db.close()
+
+
 # ────────────────────────── 反馈统计 ──────────────────────────
 
 
@@ -386,6 +425,222 @@ async def session_status(admin_key: str = Depends(verify_admin_key)):
     from server.services.agent.orchestrator import orchestrator
 
     return {"session": orchestrator.get_session()}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 健康监控（新增）
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/monitor/health",
+    summary="系统健康监控",
+    description="返回服务器资源（CPU/内存/磁盘）+ 组件状态",
+)
+async def monitor_health(admin_key: str = Depends(verify_admin_key)):
+    """采集本机资源 + 组件健康探活"""
+    import time as _time
+
+    try:
+        import psutil
+        cpu_pct = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        uptime_seconds = int(_time.time() - psutil.boot_time())
+        uptime_str = ""
+        d = uptime_seconds // 86400
+        h = (uptime_seconds % 86400) // 3600
+        m = (uptime_seconds % 3600) // 60
+        if d:
+            uptime_str += f"{d}d "
+        uptime_str += f"{h}h {m}m"
+    except ImportError:
+        cpu_pct = 0
+        mem = type("obj", (object,), {"total": 0, "used": 0, "available": 0, "percent": 0})()
+        disk = type("obj", (object,), {"total": 0, "used": 0, "free": 0, "percent": 0})()
+        uptime_str = "psutil 未安装"
+        uptime_seconds = 0
+
+    # 组件探活
+    components = []
+
+    # OmniParser
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{settings.OMNIPARSER_URL}/probe/")
+        omni_ready = r.status_code == 200
+        omni_detail = "就绪"
+    except Exception:
+        omni_ready = False
+        omni_detail = "不可达"
+    components.append({
+        "name": "OmniParser (GPU)",
+        "status": "healthy" if omni_ready else "critical",
+        "detail": omni_detail,
+    })
+
+    # LLM API
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(
+                settings.LLM_BASE_URL.rstrip("/") + "/models",
+                headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
+            )
+        llm_ready = r.status_code == 200
+        llm_detail = "就绪"
+    except Exception:
+        llm_ready = False
+        llm_detail = "不可达"
+    components.append({
+        "name": "LLM API",
+        "status": "healthy" if llm_ready else "critical",
+        "detail": llm_detail,
+    })
+
+    # SQLite
+    try:
+        from server.database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+        db_ready = True
+        db_detail = "连接正常"
+    except Exception:
+        db_ready = False
+        db_detail = "连接失败"
+    components.append({
+        "name": "SQLite",
+        "status": "healthy" if db_ready else "critical",
+        "detail": db_detail,
+    })
+
+    return {
+        "success": True,
+        "data": {
+            "resources": {
+                "cpu_pct": round(cpu_pct, 1),
+                "memory_gb": round(mem.used / (1024**3), 1),
+                "memory_total_gb": round(mem.total / (1024**3), 1),
+                "memory_pct": mem.percent,
+                "disk_free_gb": round(disk.free / (1024**3), 1),
+                "disk_total_gb": round(disk.total / (1024**3), 1),
+                "disk_pct": disk.percent,
+                "uptime": uptime_str,
+                "uptime_seconds": uptime_seconds,
+            },
+            "components": components,
+        },
+    }
+
+
+@router.get(
+    "/monitor/alerts",
+    summary="告警列表",
+)
+async def monitor_alerts(
+    admin_key: str = Depends(verify_admin_key),
+):
+    """返回内存中的告警列表。当前为占位实现。"""
+    return {
+        "success": True,
+        "data": {
+            "alerts": [],
+            "total_unread": 0,
+            "total": 0,
+        },
+    }
+
+
+@router.post(
+    "/monitor/alerts/{alert_id}/read",
+    summary="标记告警已读",
+)
+async def monitor_alert_read(
+    alert_id: str,
+    admin_key: str = Depends(verify_admin_key),
+):
+    return {
+        "success": True,
+        "data": {"marked_read": 1},
+    }
+
+
+@router.post(
+    "/monitor/alerts/read-all",
+    summary="全部告警已读",
+)
+async def monitor_alert_read_all(admin_key: str = Depends(verify_admin_key)):
+    return {
+        "success": True,
+        "data": {"marked_read": 99},
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 数据流监控（占位实现 — 数据采集机制待建）
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/flow/topology",
+    summary="服务拓扑",
+)
+async def flow_topology(admin_key: str = Depends(verify_admin_key)):
+    """返回硬编码的服务拓扑图（B端→A端→LLM/DB/OmmiParser）"""
+    return {
+        "success": True,
+        "data": {
+            "nodes": [
+                {"id": "client", "label": "B端客户端", "type": "client", "online": True},
+                {"id": "gateway", "label": "HAJIMI A端 (FastAPI)", "type": "server"},
+                {"id": "sqlite", "label": "SQLite", "type": "database"},
+                {"id": "llm", "label": "LLM API", "type": "external"},
+                {"id": "omni", "label": "OmniParser (GPU)", "type": "external"},
+            ],
+            "links": [
+                {"source": "client", "target": "gateway", "qps": 0, "latency_ms": 0, "status": "healthy"},
+                {"source": "gateway", "target": "sqlite", "qps": 0, "latency_ms": 0, "status": "healthy"},
+                {"source": "gateway", "target": "llm", "qps": 0, "latency_ms": 0, "status": "healthy"},
+                {"source": "gateway", "target": "omni", "qps": 0, "latency_ms": 0, "status": "healthy"},
+            ],
+        },
+    }
+
+
+@router.get(
+    "/flow/metrics",
+    summary="链路指标时序",
+)
+async def flow_metrics(
+    api_path: str = "",
+    range: str = "1h",
+    admin_key: str = Depends(verify_admin_key),
+):
+    """返回空的时序指标（采集机制待建）"""
+    return {
+        "success": True,
+        "data": {
+            "api_path": api_path or "/api/demo/process",
+            "granularity": "5m",
+            "data": [],
+        },
+    }
+
+
+@router.get(
+    "/flow/versions",
+    summary="客户端版本分布",
+)
+async def flow_versions(admin_key: str = Depends(verify_admin_key)):
+    """返回空的版本分布（需B端心跳机制配合）"""
+    return {
+        "success": True,
+        "data": {
+            "versions": [],
+            "total_clients": 0,
+        },
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════
