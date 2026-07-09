@@ -105,7 +105,7 @@ class Config:
     )
 
     # Agent loop tuning
-    MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "15"))
+    MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "50"))
     STEP_RETRY_LIMIT: int = int(os.getenv("STEP_RETRY_LIMIT", "1"))
 
     # ═════════════════════════════════════════════════════════════════════
